@@ -15,7 +15,7 @@
 #include "transport-runtime/enumerations.h"
 #include "boost/filesystem.hpp"
 // Include batcher file for integration
-#include "samping_integration_batcher.h"
+#include "sampling_integration_batcher.h"
 
 // Conveniences for CppTransport
 using DataType = double;
