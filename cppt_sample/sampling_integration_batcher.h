@@ -3,9 +3,6 @@
 #include <functional>
 #include <memory>
 
-// #include "transport-runtime/data/batchers/container_dispatch_function.h"
-// #include "transport-runtime/data/batchers/container_replace_function.h"
-
 #include "boost/filesystem/operations.hpp"
 #include "boost/timer/timer.hpp"
 #include "boost/log/core.hpp"
@@ -52,7 +49,7 @@ class sampling_integration_batcher
     //! move constructor
     sampling_integration_batcher(sampling_integration_batcher&&) = default;
 
-    virtual ~sampling_integration_batcher();
+    ~sampling_integration_batcher() = default;
 
   // COMPUTATION AGENT
   // compute delegate
@@ -77,7 +74,10 @@ class sampling_integration_batcher
   // BATCHERS - functions needed to compute twopf, tensorpf, gauge transforms etc.
   public:
     // Push a background sample
-    void push_backg();
+    void push_backg(unsigned int time_serial, unsigned int source_serial, const std::vector<double>& values)
+    {
+      return;
+    }
 
     void push_twopf(unsigned int time_serial, unsigned int k_serial, unsigned int source_serial,
       const std::vector<double>& twopf_values, const std::vector<double>& backg)
@@ -215,30 +215,3 @@ sampling_integration_batcher::sampling_integration_batcher(std::vector<double>& 
         boost::log::add_common_attributes();
       }
   }
-  	
-
-  // // BATCHER INFORMATION - default batcher functions needed in CppT interface
-  // public:
-  //   bool is_collecting_initial_conditions() {return false;}
-
-  //   void push_ics(unsigned int k_serial, double t_exit, const std::vector<number>& values)
-  //   {
-  //     return;
-  //   }
-
-  // // BATCHERS - functions needed to compute twopf, tensorpf, gauge transforms etc.
-  // public:
-  //   void push_backg();
-
-  //   void push_twopf(unsigned int time_serial, unsigned int k_serial, unsigned int source_serial,
-  //     const std::vector<number>& values, const std::vector<number>& backg)
-  //   {
-  //     number zeta_twopf = 0.0;
-  //     this->compute_agent.zeta_twopf(values, backg, zeta_twopf, this->gauge_xfm1);
-  //   }
-
-  //   void push_tensor_twopf(unsigned int time_serial, unsigned int k_serial,
-  //     unsigned int source_serial, const std::vector<number>& values)
-  //   {
-  //     // some code
-  //   }
