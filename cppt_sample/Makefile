@@ -7,13 +7,13 @@ include ${COSMOSIS_SRC_DIR}/config/compilers.mk
 
 #For python, leave this as is.  For C/C++/Fortran, 
 #comment the first line and uncomment the second:
-all: 
-#all cppt_sample.so
+#all: 
+all: cppt_sample.so
 
 # ... and then provide the command to compile it, perhaps
 # like this for a simple example in C:
-#cppt_sample.so: my_files.c
-#	$(CC) -shared -o cppt_sample.so my_files.c
+cppt_sample.so: cosmosis_module.cpp
+	$(CXX) -std=c++14 -shared -I/home/sean/cosmosis/ -o cppt_sample.so cosmosis_module.cpp
 
 
 #Replace this to put in some kind of test command for
