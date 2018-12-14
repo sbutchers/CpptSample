@@ -91,7 +91,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // before the chosen mode crosses the horizon. TODO: maybe move this to the set-up function above to allow it to be set in the
     // cosmosis ini file.
     const double N_init        = 0.0;
-    const double N_pre         = 0.0;
+    const double N_pre         = 15.0;
 
     // Create the parameters and initial_conditions objects that CppTransport needs using
     // the two functions defined above.
@@ -114,7 +114,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::basic_range<double> times{N_init, nEND, 500, transport::spacing::linear};
 
         // construct a test twopf task to use with the compute_aH function later
-        transport::basic_range<double> k_test{exp(15.0), exp(15.0), 1, transport::spacing::log_bottom};
+        transport::basic_range<double> k_test{exp(0.0), exp(0.0), 1, transport::spacing::log_bottom};
+
         transport::twopf_task<DataType> tk2_test{"gelaton.twopf_test", ics, times, k_test};
         tk2_test.set_collect_initial_conditions(true).set_adaptive_ics_efolds(5.0);
 
@@ -140,7 +141,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
                 continue;
             } else {
                 double k_value = exp( spline(N_value) );
-                std::cout << i << "\t" << N_value << "\t" << k_value << std::endl;
+                // std::cout << i << "\t" << N_value << "\t" << k_value << std::endl;
                 k_values.push_back(k_value);
             }
         }
@@ -171,7 +172,9 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         
         // construct a twopf task based on the k values generated above
         // transport::twopf_task<DataType> tk2{"gelaton.twopf", ics, times, ks};
-        tk2 = std::make_unique< transport::twopf_task<DataType> > ("gelaton.twopf", ics, times, ks);
+
+        transport::basic_range<double> times_sample{nEND-11.0, nEND, 15, transport::spacing::linear};
+        tk2 = std::make_unique< transport::twopf_task<DataType> > ("gelaton.twopf", ics, times_sample, ks);
         tk2->set_adaptive_ics_efolds(4.5);
 
         // construct an equilateral threepf task based on the kt values made above
@@ -207,6 +210,11 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             model->twopf_kmode(*t, tk2.get(), batcher, 1);
         }
 
+        for (int i = 0; i < samples.size(); ++i)
+        {
+            std::cout << "Sample no: " << i << " - " << samples[i] << std::endl;
+        }
+
     } catch(transport::end_of_inflation_not_found& xe) {
         // catch 1
         std::cout << "!!! END OF INFLATION NOT FOUND !!!" << std::endl;
@@ -231,6 +239,9 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     } catch(transport::failed_to_compute_horizon_exit& xe) {
         // catch 8
         std::cout << "!!! FAILED TO COMPUTE HORIZON EXIT FOR ALL K MODES !!!" << std::endl;
+    } catch(transport::adaptive_ics_before_Ninit& xe) {
+        // catch 9
+        std::cout << "!!! THE ADAPTIVE INITIAL CONDITIONS REQUIRE AN INTEGRATION TIME BEFORE N_INITIAL !!!" <<  std::endl;
     }
 
     DATABLOCK_STATUS status = DBS_SUCCESS;

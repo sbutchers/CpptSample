@@ -84,6 +84,8 @@ class sampling_integration_batcher
     {
       double zeta_twopf = 0.0;
       this->compute_agent.zeta_twopf(twopf_values, backg, zeta_twopf, this->gauge_xfm1);
+      this->data.push_back(zeta_twopf);
+      return;
     }
 
     void push_tensor_twopf(unsigned int time_serial, unsigned int k_serial,
