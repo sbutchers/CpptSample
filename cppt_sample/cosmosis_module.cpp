@@ -112,6 +112,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // protected code
         double nEND = model->compute_end_of_inflation(&bkg, Nendhigh);
         transport::basic_range<double> times{N_init, nEND, 500, transport::spacing::linear};
+//        std::cout << nEND << std::endl;
 
         // construct a test twopf task to use with the compute_aH function later
         transport::basic_range<double> k_test{exp(0.0), exp(0.0), 1, transport::spacing::log_bottom};
@@ -119,7 +120,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::twopf_task<DataType> tk2_test{"gelaton.twopf_test", ics, times, k_test};
         tk2_test.set_collect_initial_conditions(true).set_adaptive_ics_efolds(5.0);
 
-        // Use the compute aH method to be able to find the values throughtout the duration of inflation.
+        // Use the compute aH method to be able to find the values through-out the duration of inflation.
         // These will be used to find appropriate k values exiting at specific e-foldings by setting k=aH
         // at the desired value of N.
         std::vector<double> N;
@@ -151,6 +152,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         for (int i = 0; i < k_values.size(); ++i)
         {
             k_values[i] = k_values[i] / exp( spline(N_pre) );
+            // std::cout << k_values[i] << std::endl;
         }
 
         // use the vector of k values to build a transport::basic_range object to use for integration
@@ -171,9 +173,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::basic_range<double> beta_sqz{0.98, 0.9999, 10, transport::spacing::log_bottom};
         
         // construct a twopf task based on the k values generated above
-        // transport::twopf_task<DataType> tk2{"gelaton.twopf", ics, times, ks};
-
-        transport::basic_range<double> times_sample{nEND-11.0, nEND, 15, transport::spacing::linear};
+        transport::basic_range<double> times_sample{nEND-11.0, nEND, 12, transport::spacing::linear};
         tk2 = std::make_unique< transport::twopf_task<DataType> > ("gelaton.twopf", ics, times_sample, ks);
         tk2->set_adaptive_ics_efolds(4.5);
 
@@ -198,15 +198,14 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // integrate our tasks created above
         // Add a batcher here to collect the data
         std::vector<double> samples;
-        boost::filesystem::path lp{"/home/sean/cosmosis/modules/cppt_module/cppt_sample"};
+        boost::filesystem::path lp(boost::filesystem::current_path());
         unsigned int w;
         sampling_integration_batcher batcher(samples, lp, w, model.get(), tk2.get());
         
-        // !!! CODE BELOW IS A PLACEHOLDER UNTIL I GET THE BATCHER(S) WORKING !!!
+        // Integrate all of the twopf samples provided above in the tk2 task
         auto db = tk2->get_twopf_database();
         for (auto t = db.record_cbegin(); t != db.record_cend(); ++t)
         {
-            /* code */
             model->twopf_kmode(*t, tk2.get(), batcher, 1);
         }
 
