@@ -79,7 +79,7 @@ class sampling_integration_batcher
     {
       double zeta_twopf = 0.0;
       this->compute_agent.zeta_twopf(twopf_values, backg, zeta_twopf, this->gauge_xfm1);
-      this->data.push_back(zeta_twopf);
+      this->zeta_twopf_data.push_back(zeta_twopf);
       return;
     }
 
@@ -89,6 +89,25 @@ class sampling_integration_batcher
       // some code
     }
 
+    void push_threepf(unsigned int time_serial, double t,
+                      const threepf_kconfig& kconfig, unsigned int source_serial,
+                      const std::vector<double>& threepf,
+                      const std::vector<double>& tpf_k1_re, const std::vector<double>& tpf_k1_im,
+                      const std::vector<double>& tpf_k2_re, const std::vector<double>& tpf_k2_im,
+                      const std::vector<double>& tpf_k3_re, const std::vector<double>& tpf_k3_im, const std::vector<double>& bg)
+    {
+      double zeta_threepf = 0.0;
+      double redbsp = 0.0;
+
+      this->compute_agent.zeta_threepf(kconfig, t, threepf, tpf_k1_re, tpf_k1_im, tpf_k2_re, tpf_k2_im, tpf_k3_re, tpf_k3_im, bg, zeta_threepf, redbsp,
+              this->gauge_xfm1, this->gauge_xfm2_123, this->gauge_xfm2_213, this->gauge_xfm2_312);
+
+      this->zeta_threepf_data.push_back(zeta_threepf);
+      this->redbsp_data.push_back(redbsp);
+
+      return;
+    }
+
   // LOGGING FUNCTION
   public:
     //! Return logger
@@ -96,8 +115,16 @@ class sampling_integration_batcher
 
   // INTERNAL DATA
   private:
-    //! std::vector for collecting the twopf_samples in
-    std::vector<double>& data;
+    //! std::vector for collecting the zeta-twopf samples in
+    std::vector<double>& zeta_twopf_data;
+
+    // TODO: add the following two vectors to the initialiser list in the constructor below as well as
+    //       two references to two std::vectors in the argument list for the constructor so that the data is stored.
+    //! std::vector for collecting the zeta-threepf samples in
+    std::vector<double>& zeta_threepf_data;
+
+    //! std::vector for collecting the reduced bispectrum samples in
+    std::vector<double>& redbsp_data;
 
   protected:
     //! cache number of fields associated with this integration
@@ -130,6 +157,14 @@ class sampling_integration_batcher
     //! cache for linear part of gauge transformation
     std::vector<double> gauge_xfm1;
 
+    //! cache for quadratic part of gauge transformation, 123 permutation
+    std::vector<double> gauge_xfm2_123;
+
+    //! cache for quadratic part of gauge transformation, 213 permutation
+    std::vector<double> gauge_xfm2_213;
+
+    //! cache for quadratic part of gauge transformation, 312 permutation
+    std::vector<double> gauge_xfm2_312;
   };
 
 // overload << to push log_severity_level to stream
@@ -173,7 +208,7 @@ boost::log::formatting_ostream& operator<<(boost::log::formatting_ostream& strea
 // CONSTRUCTOR, DESTRUCTOR
 sampling_integration_batcher::sampling_integration_batcher(std::vector<double>& dt, const boost::filesystem::path& lp,
                             unsigned int w, transport::model<double>* m, transport::twopf_task<double>* tk, unsigned int g, bool no_log)
-  : data(dt),
+  : zeta_twopf_data(dt),
     Nfields(m->get_N_fields()),
     logdir_path(lp),
     worker_group(g),
@@ -220,6 +255,11 @@ sampling_integration_batcher::sampling_integration_batcher(std::vector<double>& 
         boost::log::add_common_attributes();
       }
 
-      // Ensure the std:vector for the 1st-order gauge transform has the correct dimensions
+      // Ensure the std::vector for the 1st-order gauge transform has the correct dimensions
       gauge_xfm1.resize(2*this->Nfields);
+
+      // Ensure the std::vectors for the quadratic gauge transformations have the correct dimensions
+      gauge_xfm2_123.resize(2*this->Nfields * 2*this->Nfields);
+      gauge_xfm2_213.resize(2*this->Nfields * 2*this-.Nfields);
+      gauge_xfm2_312.resize(2*this->Nfields * 2*this->Nfields);
   }
