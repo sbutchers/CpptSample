@@ -51,11 +51,6 @@ class sampling_integration_batcher
 
     ~sampling_integration_batcher() = default;
 
-  // COMPUTATION AGENT
-  // compute delegate
-  protected:
-    transport::postprocess_delegate<double> compute_agent;
-
   // BATCHER INFORMATION - default batcher functions needed in CppT interface
   public:
     bool is_collecting_initial_conditions() {return false;}
@@ -100,7 +95,17 @@ class sampling_integration_batcher
     logger& get_log() { return(this->log_source); }
 
   // INTERNAL DATA
-  protected:    
+  private:
+    //! std::vector for collecting the twopf_samples in
+    std::vector<double>& data;
+
+  protected:
+    //! cache number of fields associated with this integration
+    const unsigned int Nfields;
+
+    //! Log directory path
+    boost::filesystem::path logdir_path;
+
     //! Worker group associated with this batcher;
     //! usually zero unless we are doing parallel batching.
     //! Later, groups identify different integrations which have been chained together
@@ -108,12 +113,12 @@ class sampling_integration_batcher
     
     //! Worker number associated with this batcher
     unsigned int worker_number;
+
+    // COMPUTATION AGENT
+    // compute delegate
+    transport::postprocess_delegate<double> compute_agent;
     
     // OTHER INTERNAL DATA
-    
-    //! Log directory path
-    boost::filesystem::path logdir_path;
-    
     // LOGGING
     //! Logger source
     boost::log::sources::severity_logger<sampling_integration_batcher::log_severity_level> log_source;
@@ -121,9 +126,6 @@ class sampling_integration_batcher
     //! Logger sink; note we are forced to use boost::shared_ptr<> because this
     //! is what the Boost.Log API expects
     boost::shared_ptr<sink_t> log_sink;
-
-  private:
-    std::vector<double>& data;
 
     //! cache for linear part of gauge transformation
     std::vector<double> gauge_xfm1;
@@ -172,6 +174,7 @@ boost::log::formatting_ostream& operator<<(boost::log::formatting_ostream& strea
 sampling_integration_batcher::sampling_integration_batcher(std::vector<double>& dt, const boost::filesystem::path& lp,
                             unsigned int w, transport::model<double>* m, transport::twopf_task<double>* tk, unsigned int g, bool no_log)
   : data(dt),
+    Nfields(m->get_N_fields()),
     logdir_path(lp),
     worker_group(g),
     worker_number(w),
@@ -216,4 +219,7 @@ sampling_integration_batcher::sampling_integration_batcher(std::vector<double>& 
 
         boost::log::add_common_attributes();
       }
+
+      // Ensure the std:vector for the 1st-order gauge transform has the correct dimensions
+      gauge_xfm1.resize(2*this->Nfields);
   }
