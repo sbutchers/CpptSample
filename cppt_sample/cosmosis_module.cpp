@@ -44,6 +44,7 @@ static transport::local_environment env;
 static transport::argument_cache arg;
 static std::unique_ptr< transport::gelaton_mpi<DataType, StateType> > model;
 static std::unique_ptr< transport::twopf_task<DataType> > tk2;
+static std::unique_ptr< transport::threepf_alphabeta_task<DataType> > tk3e;
 
 extern "C" {
 
@@ -178,22 +179,13 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk2->set_adaptive_ics_efolds(4.5);
 
         // construct an equilateral threepf task based on the kt values made above
-        // transport::threepf_alphabeta_task<DataType> tk3e{"gelaton.threepf-equilateral", ics, times, kts, alpha_equi, beta_equi};
-        // tk3e.set_collect_initial_conditions(true).set_adaptive_ics_efolds(2.0);
+//        transport::threepf_alphabeta_task<DataType> tk3e{"gelaton.threepf-equilateral", ics, times_sample, kts, alpha_equi, beta_equi};
+        tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics, times_sample, kts, alpha_equi, beta_equi);
+        tk3e->set_adaptive_ics_efolds(4.5);
 
         // construct a squeezed threepf task based on the kt values made above.
         // transport::threepf_alphabeta_task<DataType> tk3s{"gelaton.threepf-squeezed", ics, times, kts, alpha_sqz, beta_sqz};
         // tk3s.set_collect_initial_conditions(true).set_adaptive_ics_efolds(3.0);
-        
-        // TODO: remove the paired zeta tasks when I'm sure the unique pointer to tk2 is working properly
-        //       our intention is to handle the gauge transformations within the batcher file.
-        // construct a pair of zeta task based on the two- and three-point functions above.
-        // transport::zeta_twopf_task<DataType> ztk2{"gelaton.twopf-zeta", *tk2};
-        // transport::zeta_threepf_task<DataType> ztk3e{"gelaton.threepf-zeta-equilateral", tk3e};
-        // transport::zeta_threepf_task<DataType> ztk3s{"gelaton.threepf-zeta-squeezed", tk3s};
-        // ztk2.set_paired(true);
-        // ztk3e.set_paired(true);
-        // ztk3s.set_paired(true);
 
         // integrate our tasks created above
         // Add a batcher here to collect the data
@@ -212,6 +204,17 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         for (int i = 0; i < samples.size(); ++i)
         {
             std::cout << "Sample no: " << i << " - " << samples[i] << std::endl;
+        }
+
+        // The following code is a placeholder for integrating three-point functions - still need to set up a different
+        // batcher for the tk3e task. The batcher itself needs to updated so that the two std::vectors that will store
+        // 3pf data are added as arguments and assigned in the intialiser list. There's also a question about whether
+        // this will even work - does a 3pf task require a different push_twopf function to the the batcher for the twopf
+        // tasks? Am I going to have to separate these out intro multiple classes just like the integration_batcher.h file?
+        auto db2 = tk3e->get_threepf_database();
+        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
+        {
+            model->threepf_kmode(*t, tk3e.get(), batcher2, 1);
         }
 
     } catch(transport::end_of_inflation_not_found& xe) {
