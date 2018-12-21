@@ -179,7 +179,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk2->set_adaptive_ics_efolds(4.5);
 
         // construct an equilateral threepf task based on the kt values made above
-//        transport::threepf_alphabeta_task<DataType> tk3e{"gelaton.threepf-equilateral", ics, times_sample, kts, alpha_equi, beta_equi};
         tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics, times_sample, kts, alpha_equi, beta_equi);
         tk3e->set_adaptive_ics_efolds(4.5);
 
@@ -187,34 +186,49 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // transport::threepf_alphabeta_task<DataType> tk3s{"gelaton.threepf-squeezed", ics, times, kts, alpha_sqz, beta_sqz};
         // tk3s.set_collect_initial_conditions(true).set_adaptive_ics_efolds(3.0);
 
-        // integrate our tasks created above
-        // Add a batcher here to collect the data
+        //! INTEGRATE OUR TASKS CREATED ABOVE
+        // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples, a boost
+        // filesystem path for logging and an unsigned int for logging as well.
         std::vector<double> samples;
         boost::filesystem::path lp(boost::filesystem::current_path());
         unsigned int w;
-        sampling_integration_batcher batcher(samples, lp, w, model.get(), tk2.get());
+        twopf_sampling_batcher batcher(samples, lp, w, model.get(), tk2.get());
         
-        // Integrate all of the twopf samples provided above in the tk2 task
-        auto db = tk2->get_twopf_database();
-        for (auto t = db.record_cbegin(); t != db.record_cend(); ++t)
-        {
-            model->twopf_kmode(*t, tk2.get(), batcher, 1);
-        }
-
-        for (int i = 0; i < samples.size(); ++i)
-        {
-            std::cout << "Sample no: " << i << " - " << samples[i] << std::endl;
-        }
+        // Integrate all of the twopf samples provided above in the tk2 task - this is working with the new batcher!
+//        auto db = tk2->get_twopf_database();
+//        for (auto t = db.record_cbegin(); t != db.record_cend(); ++t)
+//        {
+//            model->twopf_kmode(*t, tk2.get(), batcher, 1);
+//        }
+//
+//        for (int i = 0; i < samples.size(); ++i)
+//        {
+//            std::cout << "Sample no: " << i << " - " << samples[i] << std::endl;
+//        }
 
         // The following code is a placeholder for integrating three-point functions - still need to set up a different
         // batcher for the tk3e task. The batcher itself needs to updated so that the two std::vectors that will store
         // 3pf data are added as arguments and assigned in the intialiser list. There's also a question about whether
         // this will even work - does a 3pf task require a different push_twopf function to the the batcher for the twopf
         // tasks? Am I going to have to separate these out intro multiple classes just like the integration_batcher.h file?
+
+        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
+        // as well as the same boost::filesystem::path and unsigned int variabes as in the 2pf batcher.
+        std::vector<double> twopf_samples;
+        std::vector<double> threepf_samples;
+        std::vector<double> redbsp_samples;
+        threepf_sampling_batcher thpf_batcher(twopf_samples, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
+
+        // Integrate all of threepf samples provided in the tk3e task
         auto db2 = tk3e->get_threepf_database();
         for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
         {
-            model->threepf_kmode(*t, tk3e.get(), batcher2, 1);
+            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
+        }
+
+      for (auto i = 0; i < threepf_samples.size(); i++)
+        {
+          std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << std::endl;
         }
 
     } catch(transport::end_of_inflation_not_found& xe) {
