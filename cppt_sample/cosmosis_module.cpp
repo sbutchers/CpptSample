@@ -207,12 +207,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //            std::cout << "Sample no: " << i << " - " << samples[i] << std::endl;
 //        }
 
-        // The following code is a placeholder for integrating three-point functions - still need to set up a different
-        // batcher for the tk3e task. The batcher itself needs to updated so that the two std::vectors that will store
-        // 3pf data are added as arguments and assigned in the intialiser list. There's also a question about whether
-        // this will even work - does a 3pf task require a different push_twopf function to the the batcher for the twopf
-        // tasks? Am I going to have to separate these out intro multiple classes just like the integration_batcher.h file?
-
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variabes as in the 2pf batcher.
         std::vector<double> twopf_samples;

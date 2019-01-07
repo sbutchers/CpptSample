@@ -67,65 +67,11 @@ class sampling_integration_batcher
       return;
     }
 
-  // BATCHERS - functions needed to compute twopf, tensorpf, gauge transforms etc.
-/*
-  public:
-    // Push a background sample
-    void push_backg(unsigned int time_serial, unsigned int source_serial, const std::vector<double>& values)
-    {
-      return;
-    }
-
-    void push_twopf(unsigned int time_serial, unsigned int k_serial, unsigned int source_serial,
-      const std::vector<double>& twopf_values, const std::vector<double>& backg)
-    {
-      double zeta_twopf = 0.0;
-      this->compute_agent.zeta_twopf(twopf_values, backg, zeta_twopf, this->gauge_xfm1);
-      this->zeta_twopf_data.push_back(zeta_twopf);
-      return;
-    }
-
-    void push_tensor_twopf(unsigned int time_serial, unsigned int k_serial,
-      unsigned int source_serial, const std::vector<double>& tensor_values)
-    {
-      // some code
-    }
-
-    void push_threepf(unsigned int time_serial, double t,
-                      const threepf_kconfig& kconfig, unsigned int source_serial,
-                      const std::vector<double>& threepf,
-                      const std::vector<double>& tpf_k1_re, const std::vector<double>& tpf_k1_im,
-                      const std::vector<double>& tpf_k2_re, const std::vector<double>& tpf_k2_im,
-                      const std::vector<double>& tpf_k3_re, const std::vector<double>& tpf_k3_im, const std::vector<double>& bg)
-    {
-      double zeta_threepf = 0.0;
-      double redbsp = 0.0;
-
-      this->compute_agent.zeta_threepf(kconfig, t, threepf, tpf_k1_re, tpf_k1_im, tpf_k2_re, tpf_k2_im, tpf_k3_re, tpf_k3_im, bg, zeta_threepf, redbsp,
-              this->gauge_xfm1, this->gauge_xfm2_123, this->gauge_xfm2_213, this->gauge_xfm2_312);
-
-      this->zeta_threepf_data.push_back(zeta_threepf);
-      this->redbsp_data.push_back(redbsp);
-
-      return;
-    }
-*/
-
   // LOGGING FUNCTION
   public:
     //! Return logger
     logger& get_log() { return(this->log_source); }
 
-/*  // INTERNAL DATA
-  private:
-    //! std::vector for collecting the zeta-twopf samples in
-    std::vector<double>& zeta_twopf_data;
-
-    //! std::vector for collecting the zeta-threepf samples in
-    std::vector<double>& zeta_threepf_data;
-
-    //! std::vector for collecting the reduced bispectrum samples in
-    std::vector<double>& redbsp_data;*/
 
   protected:
     //! cache number of fields associated with this integration
@@ -142,10 +88,6 @@ class sampling_integration_batcher
     //! Worker number associated with this batcher
     unsigned int worker_number;
 
-    // COMPUTATION AGENT
-    // compute delegate
-//    transport::postprocess_delegate<double> compute_agent;
-    
     // OTHER INTERNAL DATA
     // LOGGING
     //! Logger source
@@ -154,18 +96,6 @@ class sampling_integration_batcher
     //! Logger sink; note we are forced to use boost::shared_ptr<> because this
     //! is what the Boost.Log API expects
     boost::shared_ptr<sink_t> log_sink;
-
-/*    //! cache for linear part of gauge transformation
-    std::vector<double> gauge_xfm1;
-
-    //! cache for quadratic part of gauge transformation, 123 permutation
-    std::vector<double> gauge_xfm2_123;
-
-    //! cache for quadratic part of gauge transformation, 213 permutation
-    std::vector<double> gauge_xfm2_213;
-
-    //! cache for quadratic part of gauge transformation, 312 permutation
-    std::vector<double> gauge_xfm2_312;*/
   };
 
 // DECLARE TWOPF_BATCHER AND METHODS/DATA
@@ -373,13 +303,6 @@ sampling_integration_batcher::sampling_integration_batcher(const boost::filesyst
       boost::log::add_common_attributes();
     }
 
-    // Ensure the std::vector for the 1st-order gauge transform has the correct dimensions
-//    gauge_xfm1.resize(2*this->Nfields);
-
-    // Ensure the std::vectors for the quadratic gauge transformations have the correct dimensions
-//    gauge_xfm2_123.resize(2*this->Nfields * 2*this->Nfields);
-//    gauge_xfm2_213.resize(2*this->Nfields * 2*this-.Nfields);
-//    gauge_xfm2_312.resize(2*this->Nfields * 2*this->Nfields);
 }
 
 //! TWOPF_SAMPLING METHODS
@@ -452,7 +375,6 @@ void threepf_sampling_batcher::push_backg(unsigned int time_serial, unsigned int
 {
   return;
 }
-
 
 // PUSH_TWOPF
 void threepf_sampling_batcher::push_twopf(unsigned int time_serial, unsigned int k_serial, unsigned int source_serial,
