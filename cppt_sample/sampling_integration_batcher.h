@@ -19,6 +19,8 @@
 #include "boost/log/support/date_time.hpp"
 #include "boost/date_time/posix_time/posix_time.hpp"
 
+#include "transport-runtime/enumerations.h"
+
 #include "transport-runtime/defaults.h"
 #include "transport-runtime/data/batchers/postprocess_delegate.h"
 #include "transport-runtime/tasks/task_configurations.h"
@@ -234,7 +236,7 @@ public:
 
   // Functions giving batches needed for different n-point functions
   void push_twopf(unsigned int time_serial, unsigned int k_serial, unsigned int source_serial,
-                  const std::vector<double>& twopf_values, const std::vector<double>& backg);
+                  const std::vector<double>& twopf_values, const std::vector<double>& backg, transport::twopf_type t);
 
   void push_tensor_twopf(unsigned int time_serial, unsigned int k_serial,
                          unsigned int source_serial, const std::vector<double>& tensor_values);
@@ -444,7 +446,8 @@ void threepf_sampling_batcher::push_backg(unsigned int time_serial, unsigned int
 
 // PUSH_TWOPF
 void threepf_sampling_batcher::push_twopf(unsigned int time_serial, unsigned int k_serial, unsigned int source_serial,
-                                          const std::vector<double> &twopf_values, const std::vector<double> &backg)
+                                          const std::vector<double> &twopf_values, const std::vector<double> &backg,
+                                          transport::twopf_type t)
 {
   double zeta_twopf = 0.0;
   this->compute_agent.zeta_twopf(twopf_values, backg, zeta_twopf, this->gauge_xfm1);
