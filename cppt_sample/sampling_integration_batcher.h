@@ -173,7 +173,8 @@ class twopf_sampling_batcher: public sampling_integration_batcher
 {
 public:
   //! Constructor
-  twopf_sampling_batcher(std::vector<double>& dt, const boost::filesystem::path& lp, unsigned int w,
+  twopf_sampling_batcher(std::vector<double>& dt_twopf, std::vector<double>& dt_tenspf,
+                         const boost::filesystem::path& lp, unsigned int w,
                          transport::model<double>* m, transport::twopf_task<double>* tk,
                          unsigned int g=0, bool no_log=false);
 
@@ -197,6 +198,9 @@ private:
   //! std::vector for collecting the zeta-twopf samples in
   std::vector<double>& zeta_twopf_data;
 
+  //! std::vector for collecting the tensor-twopf samples in
+  std::vector<double>& tensor_twopf_data;
+
 protected:
   //! cache number of fields associated with this integration
   const unsigned int Nfields;
@@ -214,7 +218,8 @@ class threepf_sampling_batcher: public sampling_integration_batcher
 {
 public:
   //! Constructor
-  threepf_sampling_batcher(std::vector<double>& dt, std::vector<double>& dt2a, std::vector<double>& dt2b,
+  threepf_sampling_batcher(std::vector<double>& dt_twopf, std::vector<double>& dt_tenspf,
+          std::vector<double>& dt_thrpf, std::vector<double>& dt_redbsp,
           const boost::filesystem::path& lp, unsigned int w,transport::model<double>* m,
           transport::threepf_task<double>* tk, unsigned int g=0, bool no_log=false);
 
@@ -253,8 +258,9 @@ private:
   //! std::vector for collecting the zeta-twopf samples in
   std::vector<double>& zeta_twopf_data;
 
-  // TODO: add the following two vectors to the initialiser list in the constructor below as well as
-  //       two references to two std::vectors in the argument list for the constructor so that the data is stored.
+  //! std::vector for collecting the tensor-twopf samples in
+  std::vector<double>& tensor_twopf_data;
+
   //! std::vector for collecting the zeta-threepf samples in
   std::vector<double>& zeta_threepf_data;
 
@@ -378,11 +384,13 @@ sampling_integration_batcher::sampling_integration_batcher(const boost::filesyst
 
 //! TWOPF_SAMPLING METHODS
 // CONSTRUCTOR
-twopf_sampling_batcher::twopf_sampling_batcher(std::vector<double> &dt, const boost::filesystem::path &lp,
+twopf_sampling_batcher::twopf_sampling_batcher(std::vector<double> &dt_twopf, std::vector<double> &dt_tenspf,
+                                               const boost::filesystem::path &lp,
                                                unsigned int w, transport::model<double> *m,
                                                transport::twopf_task<double> *tk, unsigned int g, bool no_log)
      : sampling_integration_batcher(lp, w, m, tk, g, no_log),
-       zeta_twopf_data(dt),
+       zeta_twopf_data(dt_twopf),
+       tensor_twopf_data(dt_tenspf),
        Nfields(m->get_N_fields()),
        compute_agent(m,tk)
 {
@@ -416,14 +424,16 @@ void twopf_sampling_batcher::push_tensor_twopf(unsigned int time_serial, unsigne
 
 //! THREEPF_SAMPLING METHODS
 // CONSTRUCTOR
-threepf_sampling_batcher::threepf_sampling_batcher(std::vector<double> &dt, std::vector<double> &dt2a,
-                                                   std::vector<double> &dt2b, const boost::filesystem::path &lp,
+threepf_sampling_batcher::threepf_sampling_batcher(std::vector<double> &dt_twopf, std::vector<double> &dt_tenspf,
+                                                   std::vector<double> &dt_thrpf, std::vector<double> &dt_redbsp,
+                                                   const boost::filesystem::path &lp,
                                                    unsigned int w, transport::model<double> *m,
                                                    transport::threepf_task<double> *tk, unsigned int g, bool no_log)
        :  sampling_integration_batcher(lp, w, m, tk, g, no_log),
-          zeta_twopf_data(dt),
-          zeta_threepf_data(dt2a),
-          redbsp_data(dt2b),
+          zeta_twopf_data(dt_twopf),
+          tensor_twopf_data(dt_tenspf),
+          zeta_threepf_data(dt_thrpf),
+          redbsp_data(dt_redbsp),
           Nfields(m->get_N_fields()),
           compute_agent(m,tk)
 {

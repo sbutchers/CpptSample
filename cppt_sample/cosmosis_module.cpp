@@ -190,9 +190,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples, a boost
         // filesystem path for logging and an unsigned int for logging as well.
         std::vector<double> samples;
+        std::vector<double> tens_samples_twpf;
         boost::filesystem::path lp(boost::filesystem::current_path());
         unsigned int w;
-        twopf_sampling_batcher batcher(samples, lp, w, model.get(), tk2.get());
+        twopf_sampling_batcher batcher(samples, tens_samples_twpf, lp, w, model.get(), tk2.get());
         
         // Integrate all of the twopf samples provided above in the tk2 task - this is working with the new batcher!
 //        auto db = tk2->get_twopf_database();
@@ -215,9 +216,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variabes as in the 2pf batcher.
         std::vector<double> twopf_samples;
+        std::vector<double> tens_samples_thpf;
         std::vector<double> threepf_samples;
         std::vector<double> redbsp_samples;
-        threepf_sampling_batcher thpf_batcher(twopf_samples, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
+        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
 
         // Integrate all of threepf samples provided in the tk3e task
         auto db2 = tk3e->get_threepf_database();
