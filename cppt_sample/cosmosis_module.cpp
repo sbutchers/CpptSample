@@ -196,36 +196,36 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         twopf_sampling_batcher batcher(samples, tens_samples_twpf, lp, w, model.get(), tk2.get());
         
         // Integrate all of the twopf samples provided above in the tk2 task - this is working with the new batcher!
-//        auto db = tk2->get_twopf_database();
-//        for (auto t = db.record_cbegin(); t != db.record_cend(); ++t)
+        auto db = tk2->get_twopf_database();
+        for (auto t = db.record_cbegin(); t != db.record_cend(); ++t)
+        {
+            model->twopf_kmode(*t, tk2.get(), batcher, 1);
+        }
+
+        for (int i = 0; i < tens_samples_twpf.size(); ++i)
+        {
+            std::cout << "Sample no: " << i << " - " << tens_samples_twpf[i] << std::endl;
+        }
+
+//        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
+//        // as well as the same boost::filesystem::path and unsigned int variabes as in the 2pf batcher.
+//        std::vector<double> twopf_samples;
+//        std::vector<double> tens_samples_thpf;
+//        std::vector<double> threepf_samples;
+//        std::vector<double> redbsp_samples;
+//        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
+//
+//        // Integrate all of threepf samples provided in the tk3e task
+//        auto db2 = tk3e->get_threepf_database();
+//        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
 //        {
-//            model->twopf_kmode(*t, tk2.get(), batcher, 1);
+//            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
 //        }
 //
-//        for (int i = 0; i < samples.size(); ++i)
+//      for (auto i = 0; i < threepf_samples.size(); i++)
 //        {
-//            std::cout << "Sample no: " << i << " - " << samples[i] << std::endl;
+//          std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << std::endl;
 //        }
-
-        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
-        // as well as the same boost::filesystem::path and unsigned int variabes as in the 2pf batcher.
-        std::vector<double> twopf_samples;
-        std::vector<double> tens_samples_thpf;
-        std::vector<double> threepf_samples;
-        std::vector<double> redbsp_samples;
-        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
-
-        // Integrate all of threepf samples provided in the tk3e task
-        auto db2 = tk3e->get_threepf_database();
-        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
-        {
-            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
-        }
-
-      for (auto i = 0; i < threepf_samples.size(); i++)
-        {
-          std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << std::endl;
-        }
 
     } catch(transport::end_of_inflation_not_found& xe) {
         // catch 1

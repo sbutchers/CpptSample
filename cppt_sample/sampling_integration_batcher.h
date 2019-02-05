@@ -20,6 +20,7 @@
 #include "boost/date_time/posix_time/posix_time.hpp"
 
 #include "transport-runtime/enumerations.h"
+#include "transport-runtime/data/batchers/integration_items.h"
 
 #include "transport-runtime/defaults.h"
 #include "transport-runtime/data/batchers/postprocess_delegate.h"
@@ -342,7 +343,8 @@ void twopf_sampling_batcher::push_twopf(unsigned int time_serial, unsigned int k
 void twopf_sampling_batcher::push_tensor_twopf(unsigned int time_serial, unsigned int k_serial,
                                                unsigned int source_serial, const std::vector<double> &tensor_values)
 {
-  // Some code
+  double tensor_twopf = tensor_values[0];
+  this->tensor_twopf_data.emplace_back(tensor_twopf);
 }
 
 //! THREEPF_SAMPLING METHODS
@@ -392,7 +394,8 @@ void threepf_sampling_batcher::push_tensor_twopf(unsigned int time_serial, unsig
                                                  unsigned int source_serial,
                                                  const std::vector<double> &tensor_values)
 {
-  // Some code
+  double tensor_twopf = tensor_values[0];
+  this->tensor_twopf_data.emplace_back(tensor_twopf);
 }
 
 // PUSH_THREEPF
