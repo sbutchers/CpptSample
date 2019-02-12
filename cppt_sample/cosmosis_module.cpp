@@ -38,6 +38,9 @@ namespace inflation {
         StateType output{R_init, theta_init, Rdot_init, thetadot_init};
         return output;
     }
+
+    // Unsigned ints for capturing failed samples
+    unsigned int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V, failed_horizonExit, ics_before_start;
 }
 
 static transport::local_environment env;
@@ -202,25 +205,25 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             model->twopf_kmode(*t, tk2.get(), batcher, 1);
         }
 
-        for (int i = 0; i < tens_samples_twpf.size(); ++i)
-        {
-            std::cout << "Sample no: " << i << " - " << tens_samples_twpf[i] << std::endl;
-        }
-
-//        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
-//        // as well as the same boost::filesystem::path and unsigned int variabes as in the 2pf batcher.
-//        std::vector<double> twopf_samples;
-//        std::vector<double> tens_samples_thpf;
-//        std::vector<double> threepf_samples;
-//        std::vector<double> redbsp_samples;
-//        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
-//
-//        // Integrate all of threepf samples provided in the tk3e task
-//        auto db2 = tk3e->get_threepf_database();
-//        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
+//        for (int i = 0; i < tens_samples_twpf.size(); ++i)
 //        {
-//            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
+//            std::cout << "Sample no: " << i << " - " << tens_samples_twpf[i] << std::endl;
 //        }
+
+        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
+        // as well as the same boost::filesystem::path and unsigned int variabes as in the 2pf batcher.
+        std::vector<double> twopf_samples;
+        std::vector<double> tens_samples_thpf;
+        std::vector<double> threepf_samples;
+        std::vector<double> redbsp_samples;
+        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
+
+        // Integrate all of threepf samples provided in the tk3e task
+        auto db2 = tk3e->get_threepf_database();
+        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
+        {
+            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
+        }
 //
 //      for (auto i = 0; i < threepf_samples.size(); i++)
 //        {
@@ -230,30 +233,39 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     } catch(transport::end_of_inflation_not_found& xe) {
         // catch 1
         std::cout << "!!! END OF INFLATION NOT FOUND !!!" << std::endl;
+        no_end_inflate = 1;
     } catch(transport::Hsq_is_negative& xe) {
         // catch 2
         std::cout << "!!! HSQ IS NEGATIVE !!!" << std::endl;
+        neg_Hsq = 1;
     } catch(transport::integration_produced_nan& xe) {
         // catch 3
         std::cout << "!!! INTEGRATION PRODUCED NAN !!!" << std::endl;
+        integrate_nan = 1;
     } catch(transport::no_massless_time& xe) {
         // catch 4
         std::cout << "!!! NO MASSLESS TIME FOR THIS K MODE !!!" << std::endl;
+        zero_massless = 1;
     } catch(transport::eps_is_negative& xe) {
         // catch 5
         std::cout << "!!! EPSILON PARAMATER IS NEGATIVE !!!" << std::endl;
+        neg_epsilon = 1;
     } catch(transport::eps_too_large& xe) {
         // catch 6
         std::cout << "!!! EPSILON > 3 !!!" << std::endl;
+        large_epsilon = 1;
     } catch(transport::V_is_negative& xe) {
         // catch 7
         std::cout << "!!! NEGATIVE POTENTIAL !!!" << std::endl;
+        neg_V = 1;
     } catch(transport::failed_to_compute_horizon_exit& xe) {
         // catch 8
         std::cout << "!!! FAILED TO COMPUTE HORIZON EXIT FOR ALL K MODES !!!" << std::endl;
+        failed_horizonExit = 1;
     } catch(transport::adaptive_ics_before_Ninit& xe) {
         // catch 9
         std::cout << "!!! THE ADAPTIVE INITIAL CONDITIONS REQUIRE AN INTEGRATION TIME BEFORE N_INITIAL !!!" <<  std::endl;
+        ics_before_start = 1;
     }
 
     DATABLOCK_STATUS status = DBS_SUCCESS;
