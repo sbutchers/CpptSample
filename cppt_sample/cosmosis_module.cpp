@@ -11,6 +11,7 @@
 #include "transport-runtime/tasks/integration_detail/abstract.h"
 #include "transport-runtime/models/advisory_classes.h"
 #include <memory>
+#include "math.h"
 #include "transport-runtime/tasks/integration_detail/twopf_task.h"
 #include "transport-runtime/enumerations.h"
 #include "boost/filesystem.hpp"
@@ -205,25 +206,55 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             model->twopf_kmode(*t, tk2.get(), batcher, 1);
         }
 
-//        for (int i = 0; i < tens_samples_twpf.size(); ++i)
-//        {
-//            std::cout << "Sample no: " << i << " - " << tens_samples_twpf[i] << std::endl;
-//        }
+        for (int i = 0; i < tens_samples_twpf.size(); ++i)
+        {
+            std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << samples[i] << " ; Tensor 2pf: " << tens_samples_twpf[i] << std::endl;
+        }
+
+        std::vector<double> A_s;
+        std::vector<double> A_t;
+        std::vector<double> r;
+        for (int k = 1; k <= k_values.size(); ++k) {
+            A_s.push_back(samples[12*k]);
+            A_t.push_back(tens_samples_twpf[12*k]);
+            r.push_back( tens_samples_twpf[12*k] / samples[12*k] );
+        }
+
+        for (auto i: r) {
+          std::cout << "r: " << i << std::endl;
+        }
+
+        std::vector<double> logA_s;
+        std::vector<double> logA_t;
+        for (int i = 0; i < A_s.size(); ++i) {
+            logA_s.push_back( log( A_s[i] ) );
+            logA_t.push_back( log( A_t[i] ) );
+        }
+
+
+        std::vector<double> logK;
+        for (auto& i: k_values) {
+            logK.push_back(log(i));
+        }
+
+        transport::spline1d<double> ns_spline( logK, logA_s );
+        transport::spline1d<double> nt_spline( logK, logA_t );
+
 
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variabes as in the 2pf batcher.
-        std::vector<double> twopf_samples;
-        std::vector<double> tens_samples_thpf;
-        std::vector<double> threepf_samples;
-        std::vector<double> redbsp_samples;
-        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
-
-        // Integrate all of threepf samples provided in the tk3e task
-        auto db2 = tk3e->get_threepf_database();
-        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
-        {
-            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
-        }
+//        std::vector<double> twopf_samples;
+//        std::vector<double> tens_samples_thpf;
+//        std::vector<double> threepf_samples;
+//        std::vector<double> redbsp_samples;
+//        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
+//
+//        // Integrate all of threepf samples provided in the tk3e task
+//        auto db2 = tk3e->get_threepf_database();
+//        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
+//        {
+//            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
+//        }
 //
 //      for (auto i = 0; i < threepf_samples.size(); i++)
 //        {
