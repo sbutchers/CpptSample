@@ -15,6 +15,7 @@
 #include "transport-runtime/tasks/integration_detail/twopf_task.h"
 #include "transport-runtime/enumerations.h"
 #include "boost/filesystem.hpp"
+#include <exception>
 // Include batcher file for integration
 #include "sampling_integration_batcher.h"
 
@@ -41,8 +42,22 @@ namespace inflation {
     }
 
     // Unsigned ints for capturing failed samples
-    unsigned int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V, failed_horizonExit, ics_before_start;
+    unsigned int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V, failed_horizonExit, ics_before_start, inflate60, time_var_pow_spec;
 }
+
+// exception for catching when <60 e-folds inflation given as we need at least 60 e-folds for sampling
+struct le60inflation : public std::exception {
+    const char * what () const throw () {
+        return "<60 e-folds!";
+    }
+};
+
+// exception for catching a power spectrum with too much time-dependence on super-horizon scales
+struct time_varying_spectrum : public std::exception {
+    const char * what () const throw () {
+        return "time varying spectrum";
+    }
+};
 
 static transport::local_environment env;
 static transport::argument_cache arg;
@@ -114,8 +129,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // physics such as when the end of inflation can't be found or when H is complex etc. these cases are
     // given a specific flag for the type of problem encountered and logged in the cosmosis datablock.
     try {
-        // protected code
+        // compute eEND-> throw exception struct defined above if we have nEND < 60.0 e-folds
         double nEND = model->compute_end_of_inflation(&bkg, Nendhigh);
+        if (nEND < 60.0) {
+            throw le60inflation();
+        }
+
         transport::basic_range<double> times{N_init, nEND, 500, transport::spacing::linear};
 //        std::cout << nEND << std::endl;
 
@@ -186,11 +205,14 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics, times_sample, kts, alpha_equi, beta_equi);
         tk3e->set_adaptive_ics_efolds(4.5);
 
+        std::cout << "time_size: " << times_sample.size() << std::endl;
+        std::cout << "kts_size: " << kts.size() << std::endl;
+
         // construct a squeezed threepf task based on the kt values made above.
         // transport::threepf_alphabeta_task<DataType> tk3s{"gelaton.threepf-squeezed", ics, times, kts, alpha_sqz, beta_sqz};
         // tk3s.set_collect_initial_conditions(true).set_adaptive_ics_efolds(3.0);
 
-        //! INTEGRATE OUR TASKS CREATED ABOVE
+        //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples, a boost
         // filesystem path for logging and an unsigned int for logging as well.
         std::vector<double> samples;
@@ -211,6 +233,43 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << samples[i] << " ; Tensor 2pf: " << tens_samples_twpf[i] << std::endl;
         }
 
+        // find the std deviation & mean of the power spectrum amplitudes
+        std::vector<double> mean(11), std_dev(11);
+        for (int i = 0; i < k_values.size(); i++) {
+            double sum = 0;
+            for (int j = 0; j < 13; j++) {
+                sum += samples[(13*i)+j];
+            }
+            mean[i] = sum / 13.0;
+            //std::cout << "Mean[" << i << "]: " << mean[i] << std::endl;
+        }
+
+        for (int i = 0; i < k_values.size(); i++) {
+            double sum_sq = 0;
+            for (int j = 0; j < 13; j++) {
+                sum_sq += pow(samples[(13*i)+j] - mean[i], 2);
+            }
+            std::cout << "Sum_sq = " << sum_sq << std::endl;
+            std_dev[i] = sqrt(sum_sq / 12.0); // divide by 12 for N-1 samples
+            //std::cout << "Std-dev[" << i << "]: " << std_dev[i] << std::endl;
+        }
+
+        // find a measure of the dispersion of power spectrum values -> std-dev/mean
+        std::vector<double> dispersion(11);
+        for (int i = 0; i < mean.size(); ++i) {
+            dispersion[i] = std_dev[i]/mean[i];
+            std::cout << dispersion[i] << std::endl;
+        }
+
+        // throw the time-varying exception defined above if the dispersion is >10%
+        for (auto i: dispersion) {
+            if (i > 0.1) {
+                throw time_varying_spectrum();
+            }
+        }
+
+        // find A_s & A_t for each k mode exiting at Nend-10, ..., Nend etc. We take the final time value at Nend to be the
+        // amplitude for the scalar and tensor modes. The tensor-to-scalar ratio r is the ratio of these values.
         std::vector<double> A_s;
         std::vector<double> A_t;
         std::vector<double> r;
@@ -220,43 +279,29 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             r.push_back( tens_samples_twpf[12*k] / samples[12*k] );
         }
 
-        double mean, sum, sum_sq, std_dev;
-        for (int i = 0; i < A_s.size(); i++) {
-            sum += A_s[i];
-        }
-        mean = sum / A_s.size();
-
-        for (int i = 0; i < A_s.size(); ++i) {
-            sum_sq += pow(A_s[i] - mean, 2);
-        }
-        std_dev = sqrt( sum_sq / (A_s.size() - 1));
-
-        std::cout << "Mean: " << mean << " ; Std_dev: " << std_dev << std::endl;
-
-        for (auto i: r) {
-          std::cout << "r: " << i << std::endl;
-        }
-
+        //! Construct log values of A and k for the n_s & n_t splines
+        // construct two vectors of log A_s & log A_t values
         std::vector<double> logA_s;
         std::vector<double> logA_t;
         for (int i = 0; i < A_s.size(); ++i) {
             logA_s.push_back( log( A_s[i] ) );
             logA_t.push_back( log( A_t[i] ) );
         }
-
-
+        // construct a vector of ln(k) values
         std::vector<double> logK;
         for (auto& i: k_values) {
             logK.push_back(log(i));
         }
 
+        // construct two splines for the log k and log A_s or A_t values
         transport::spline1d<double> ns_spline( logK, logA_s );
         transport::spline1d<double> nt_spline( logK, logA_t );
 
+        // use the eval_diff method in the splines to compute n_s and n_t for each k value
         std::vector<double> n_s;
         std::vector<double> n_t;
         for (int j = 0; j < logK.size(); ++j) {
-            double temp = ns_spline.eval_diff(logK[j]);
+            double temp = ns_spline.eval_diff(logK[j]) + 1.0; // add 1 for the n_s-1 scalar index convention
             double temp2 = nt_spline.eval_diff(logK[j]);
             n_s.push_back(temp);
             n_t.push_back(temp2);
@@ -264,7 +309,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             std::cout << "n_t for " << logK[j] << " is: " << temp2 << std::endl;
         }
 
-
+        //! INTEGRATE OUR TASKS CREATED FOR THE EQUILATERAL 3-POINT FUNCTION ABOVE
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
         std::vector<double> twopf_samples;
@@ -282,46 +327,54 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         for (auto i = 0; i < threepf_samples.size(); i++)
         {
-          std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << " ; Redbsp: " << redbsp_samples[i] << std::endl;
+            std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << " ; Redbsp: " << redbsp_samples[i] << std::endl;
         }
 
-    } catch(transport::end_of_inflation_not_found& xe) {
-        // catch 1
+        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for each k mode
+        std::vector<double> B_equi(kts.size());
+        for (int j = 0; j < kts.size(); j++) {
+            int index = (times_sample.size() * j) + (times_sample.size() -1);
+            B_equi[j] = threepf_samples[index];
+            std::cout << "B_equi: " << B_equi[j] << std::endl;
+        }
+
+    } catch (transport::end_of_inflation_not_found& xe) {
         std::cout << "!!! END OF INFLATION NOT FOUND !!!" << std::endl;
-        no_end_inflate = 1;
-    } catch(transport::Hsq_is_negative& xe) {
-        // catch 2
+        inflation::no_end_inflate = 1;
+    } catch (transport::Hsq_is_negative& xe) {
         std::cout << "!!! HSQ IS NEGATIVE !!!" << std::endl;
-        neg_Hsq = 1;
-    } catch(transport::integration_produced_nan& xe) {
-        // catch 3
+        inflation::neg_Hsq = 1;
+    } catch (transport::integration_produced_nan& xe) {
         std::cout << "!!! INTEGRATION PRODUCED NAN !!!" << std::endl;
-        integrate_nan = 1;
-    } catch(transport::no_massless_time& xe) {
-        // catch 4
+        inflation::integrate_nan = 1;
+    } catch (transport::no_massless_time& xe) {
         std::cout << "!!! NO MASSLESS TIME FOR THIS K MODE !!!" << std::endl;
-        zero_massless = 1;
-    } catch(transport::eps_is_negative& xe) {
-        // catch 5
+        inflation::zero_massless = 1;
+    } catch (transport::eps_is_negative& xe) {
         std::cout << "!!! EPSILON PARAMATER IS NEGATIVE !!!" << std::endl;
-        neg_epsilon = 1;
-    } catch(transport::eps_too_large& xe) {
-        // catch 6
+        inflation::neg_epsilon = 1;
+    } catch (transport::eps_too_large& xe) {
         std::cout << "!!! EPSILON > 3 !!!" << std::endl;
-        large_epsilon = 1;
-    } catch(transport::V_is_negative& xe) {
-        // catch 7
+        inflation::large_epsilon = 1;
+    } catch (transport::V_is_negative& xe) {
         std::cout << "!!! NEGATIVE POTENTIAL !!!" << std::endl;
-        neg_V = 1;
-    } catch(transport::failed_to_compute_horizon_exit& xe) {
-        // catch 8
+        inflation::neg_V = 1;
+    } catch (transport::failed_to_compute_horizon_exit& xe) {
         std::cout << "!!! FAILED TO COMPUTE HORIZON EXIT FOR ALL K MODES !!!" << std::endl;
-        failed_horizonExit = 1;
-    } catch(transport::adaptive_ics_before_Ninit& xe) {
-        // catch 9
+        inflation::failed_horizonExit = 1;
+    } catch (transport::adaptive_ics_before_Ninit& xe) {
         std::cout << "!!! THE ADAPTIVE INITIAL CONDITIONS REQUIRE AN INTEGRATION TIME BEFORE N_INITIAL !!!" <<  std::endl;
-        ics_before_start = 1;
+        inflation::ics_before_start = 1;
+    } catch (le60inflation& xe) {
+        std::cout << "!!! WE HAVE LESS THAN 60 E-FOLDS OF INFLATION !!!" << std::endl;
+        inflation::inflate60 = 1;
+    } catch (time_varying_spectrum& xe) {
+        std::cout << "!!! THE POWER SPECTRUM VARIES TOO MUCH !!!" << std::endl;
+        inflation::time_var_pow_spec = 1;
     }
+
+    /* TODO: Here there needs to be some way of returning the data to the datablock - this will hopefully produces an ini file
+    with all the initial conditions, the values for A_s, A_t, n_s, n_t, r, B_equi, f_NL_equi for each horizon exit value */
 
     DATABLOCK_STATUS status = DBS_SUCCESS;
     return status;
