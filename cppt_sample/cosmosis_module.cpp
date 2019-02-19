@@ -26,6 +26,7 @@ using StateType = std::vector<DataType>;
 namespace inflation {
     const char *sectionName = "cppt_sample";
     const char *paramsSection = "inflation_parameters";
+    const char *twopf_name = "twopf_observables";
     
     double M_P, V0, eta_R, g_R, lambda_R, alpha, R0, R_init, theta_init, Rdot_init, thetadot_init;
 
@@ -160,15 +161,9 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         for (int i = 60; i >= 50; --i)
         {
             double N_value = nEND - i;
-            if (N_value < 0.0)
-            {
-                std::cout << "This inflation model gives less than 60 e-folds of inflation!" << std::endl;
-                continue;
-            } else {
-                double k_value = exp( spline(N_value) );
-                // std::cout << i << "\t" << N_value << "\t" << k_value << std::endl;
-                k_values.push_back(k_value);
-            }
+            double k_value = exp( spline(N_value) );
+            // std::cout << i << "\t" << N_value << "\t" << k_value << std::endl;
+            k_values.push_back(k_value);
         }
 
         // To get these k numbers to be conventionally normalised, we need the value of aH given at
@@ -241,7 +236,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
                 sum += samples[(13*i)+j];
             }
             mean[i] = sum / 13.0;
-            //std::cout << "Mean[" << i << "]: " << mean[i] << std::endl;
         }
 
         for (int i = 0; i < k_values.size(); i++) {
@@ -249,9 +243,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             for (int j = 0; j < 13; j++) {
                 sum_sq += pow(samples[(13*i)+j] - mean[i], 2);
             }
-            std::cout << "Sum_sq = " << sum_sq << std::endl;
-            std_dev[i] = sqrt(sum_sq / 12.0); // divide by 12 for N-1 samples
-            //std::cout << "Std-dev[" << i << "]: " << std_dev[i] << std::endl;
+            std_dev[i] = sqrt(sum_sq / (times_sample.size() - 1)); // divide by 12 for N-1 samples
         }
 
         // find a measure of the dispersion of power spectrum values -> std-dev/mean
@@ -273,10 +265,17 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::vector<double> A_s;
         std::vector<double> A_t;
         std::vector<double> r;
-        for (int k = 1; k <= k_values.size(); ++k) {
-            A_s.push_back(samples[12*k]);
-            A_t.push_back(tens_samples_twpf[12*k]);
-            r.push_back( tens_samples_twpf[12*k] / samples[12*k] );
+        for (int k = 0; k < k_values.size(); ++k) {
+            int index = (times_sample.size() * k) + (times_sample.size() -1);
+            A_s.push_back(samples[index]);
+            A_t.push_back(tens_samples_twpf[index]);
+            r.push_back( tens_samples_twpf[index] / samples[index] );
+        }
+
+        for (int i=0; i < A_s.size(); i++) {
+            std::cout << "A_s: " << A_s[i] << std::endl;
+            std::cout << "A_t: " << A_t[i] << std::endl;
+            std::cout << "r: " << r[i] << std::endl;
         }
 
         //! Construct log values of A and k for the n_s & n_t splines
@@ -309,34 +308,42 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             std::cout << "n_t for " << logK[j] << " is: " << temp2 << std::endl;
         }
 
+        block->put_val( inflation::twopf_name, "k_values", k_values );
+        block->put_val( inflation::twopf_name, "A_s", A_s );
+        block->put_val( inflation::twopf_name, "A_t", A_t );
+        block->put_val( inflation::twopf_name, "n_s", n_s );
+        block->put_val( inflation::twopf_name, "n_t", n_t );
+        block->put_val( inflation::twopf_name, "r", r );
+
         //! INTEGRATE OUR TASKS CREATED FOR THE EQUILATERAL 3-POINT FUNCTION ABOVE
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
-        std::vector<double> twopf_samples;
-        std::vector<double> tens_samples_thpf;
-        std::vector<double> threepf_samples;
-        std::vector<double> redbsp_samples;
-        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
-
-        // Integrate all of threepf samples provided in the tk3e task
-        auto db2 = tk3e->get_threepf_database();
-        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
-        {
-            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
-        }
-
-        for (auto i = 0; i < threepf_samples.size(); i++)
-        {
-            std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << " ; Redbsp: " << redbsp_samples[i] << std::endl;
-        }
-
-        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for each k mode
-        std::vector<double> B_equi(kts.size());
-        for (int j = 0; j < kts.size(); j++) {
-            int index = (times_sample.size() * j) + (times_sample.size() -1);
-            B_equi[j] = threepf_samples[index];
-            std::cout << "B_equi: " << B_equi[j] << std::endl;
-        }
+//        std::vector<double> twopf_samples;
+//        std::vector<double> tens_samples_thpf;
+//        std::vector<double> threepf_samples;
+//        std::vector<double> redbsp_samples;
+//        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
+//
+//        // Integrate all of threepf samples provided in the tk3e task
+//        auto db2 = tk3e->get_threepf_database();
+//        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
+//        {
+//            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
+//        }
+//
+//        for (auto i = 0; i < threepf_samples.size(); i++)
+//        {
+//            std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << " ; Redbsp: " << redbsp_samples[i] << std::endl;
+//        }
+//
+//        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for each k mode
+//        std::vector<double> B_equi(kts.size());
+//        std::vector<double> fNL_equi(kts.size());
+//        for (int j = 0; j < kts.size(); j++) {
+//            int index = (times_sample.size() * j) + (times_sample.size() -1);
+//            B_equi[j] = threepf_samples[index];
+//            fNL_equi[j] = redbsp_samples[index];
+//        }
 
     } catch (transport::end_of_inflation_not_found& xe) {
         std::cout << "!!! END OF INFLATION NOT FOUND !!!" << std::endl;
@@ -375,6 +382,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
     /* TODO: Here there needs to be some way of returning the data to the datablock - this will hopefully produces an ini file
     with all the initial conditions, the values for A_s, A_t, n_s, n_t, r, B_equi, f_NL_equi for each horizon exit value */
+
 
     DATABLOCK_STATUS status = DBS_SUCCESS;
     return status;
