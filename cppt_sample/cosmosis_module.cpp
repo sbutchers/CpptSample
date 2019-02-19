@@ -130,9 +130,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // physics such as when the end of inflation can't be found or when H is complex etc. these cases are
     // given a specific flag for the type of problem encountered and logged in the cosmosis datablock.
     try {
-        // compute eEND-> throw exception struct defined above if we have nEND < 60.0 e-folds
+        // compute nEND-> throw exception struct defined above if we have nEND < 60.0 e-folds
         double nEND = model->compute_end_of_inflation(&bkg, Nendhigh);
-        if (nEND < 60.0) {
+        if (nEND < 60.0)
+        {
             throw le60inflation();
         }
 
@@ -230,7 +231,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // find the std deviation & mean of the power spectrum amplitudes
         std::vector<double> mean(11), std_dev(11);
-        for (int i = 0; i < k_values.size(); i++) {
+        for (int i = 0; i < k_values.size(); i++)
+        {
             double sum = 0;
             for (int j = 0; j < 13; j++) {
                 sum += samples[(13*i)+j];
@@ -238,7 +240,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             mean[i] = sum / 13.0;
         }
 
-        for (int i = 0; i < k_values.size(); i++) {
+        for (int i = 0; i < k_values.size(); i++)
+        {
             double sum_sq = 0;
             for (int j = 0; j < 13; j++) {
                 sum_sq += pow(samples[(13*i)+j] - mean[i], 2);
@@ -248,14 +251,17 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // find a measure of the dispersion of power spectrum values -> std-dev/mean
         std::vector<double> dispersion(11);
-        for (int i = 0; i < mean.size(); ++i) {
+        for (int i = 0; i < mean.size(); ++i)
+        {
             dispersion[i] = std_dev[i]/mean[i];
             std::cout << dispersion[i] << std::endl;
         }
 
         // throw the time-varying exception defined above if the dispersion is >10%
-        for (auto i: dispersion) {
-            if (i > 0.1) {
+        for (auto i: dispersion)
+        {
+            if (i > 0.1)
+            {
                 throw time_varying_spectrum();
             }
         }
@@ -265,14 +271,16 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::vector<double> A_s;
         std::vector<double> A_t;
         std::vector<double> r;
-        for (int k = 0; k < k_values.size(); ++k) {
+        for (int k = 0; k < k_values.size(); ++k)
+        {
             int index = (times_sample.size() * k) + (times_sample.size() -1);
             A_s.push_back(samples[index]);
             A_t.push_back(tens_samples_twpf[index]);
             r.push_back( tens_samples_twpf[index] / samples[index] );
         }
 
-        for (int i=0; i < A_s.size(); i++) {
+        for (int i=0; i < A_s.size(); i++)
+        {
             std::cout << "A_s: " << A_s[i] << std::endl;
             std::cout << "A_t: " << A_t[i] << std::endl;
             std::cout << "r: " << r[i] << std::endl;
@@ -282,13 +290,15 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // construct two vectors of log A_s & log A_t values
         std::vector<double> logA_s;
         std::vector<double> logA_t;
-        for (int i = 0; i < A_s.size(); ++i) {
+        for (int i = 0; i < A_s.size(); ++i)
+        {
             logA_s.push_back( log( A_s[i] ) );
             logA_t.push_back( log( A_t[i] ) );
         }
         // construct a vector of ln(k) values
         std::vector<double> logK;
-        for (auto& i: k_values) {
+        for (auto& i: k_values)
+        {
             logK.push_back(log(i));
         }
 
@@ -299,7 +309,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // use the eval_diff method in the splines to compute n_s and n_t for each k value
         std::vector<double> n_s;
         std::vector<double> n_t;
-        for (int j = 0; j < logK.size(); ++j) {
+        for (int j = 0; j < logK.size(); ++j)
+        {
             double temp = ns_spline.eval_diff(logK[j]) + 1.0; // add 1 for the n_s-1 scalar index convention
             double temp2 = nt_spline.eval_diff(logK[j]);
             n_s.push_back(temp);
