@@ -83,9 +83,10 @@ void * setup(cosmosis::DataBlock * options)
 
 DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 {
-    // Config is whatever you returned from setup above
-    // Block is the collection of parameters and calculations for
-    // this set of cosmological parameters
+    // Initialise DATABLOCK_STATUS to 0 - this is returned at end of function
+    DATABLOCK_STATUS status = (DATABLOCK_STATUS)0;
+
+    // Read in inflation parameters (Lagrangian and field initial values)
     block->get_val(inflation::paramsSection, "V_0",           inflation::V0);
     block->get_val(inflation::paramsSection, "eta_R",         inflation::eta_R);
     block->get_val(inflation::paramsSection, "g_R",           inflation::g_R);
@@ -97,6 +98,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     block->get_val(inflation::paramsSection, "Rdot_init",     inflation::Rdot_init);
     block->get_val(inflation::paramsSection, "thetadot_init", inflation::thetadot_init);
 
+    // Print out of each of the inflation parameters read-in above
     std::cout << "V0 = " << inflation::V0 << std::endl;
     std::cout << "eta_R = " << inflation::eta_R << std::endl;
     std::cout << "g_R = " << inflation::g_R << std::endl;
@@ -108,22 +110,31 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     std::cout << "theta_init = " << inflation::theta_init << std::endl;
     std::cout << "thetadot_init = " << inflation::thetadot_init << std::endl;
 
-    // Set-up initial time for integration (N_init) and N_pre which is used to set the amount of sub-horizon evolution to integrate
-    // before the chosen mode crosses the horizon. TODO: maybe move this to the set-up function above to allow it to be set in the
-    // cosmosis ini file.
+    // Set-up initial time for integration (N_init) and N_pre which is used to set the amount of sub-horizon evolution
+    // to integrate before the chosen mode crosses the horizon.
     const double N_init        = 0.0;
     const double N_pre         = 15.0;
 
     // Create the parameters and initial_conditions objects that CppTransport needs using
     // the two functions defined above.
     using namespace inflation;
-    transport::parameters<DataType> params{M_P, inflation::parameter_creator(R0, V0, eta_R, g_R, lambda_R, alpha), model.get()};
-    transport::initial_conditions<DataType> ics{"gelaton", params, inflation::init_cond_creator(R_init, theta_init, Rdot_init, thetadot_init), N_init, N_pre};
+    transport::parameters<DataType> params{M_P, inflation::parameter_creator(R0, V0, eta_R, g_R, lambda_R, alpha),
+                                           model.get()};
+    transport::initial_conditions<DataType> ics{"gelaton", params, inflation::init_cond_creator(R_init, theta_init,
+            Rdot_init, thetadot_init), N_init, N_pre};
     
     // Use a silly end value to find nEND and set the time range used by CppT to finish at nEND.
     double Nendhigh = 10000;
     transport::basic_range<DataType> dummy_times{N_init, Nendhigh, 2, transport::spacing::linear};
     transport::background_task<DataType> bkg{ics, dummy_times};
+
+    // declare the std::vectors needed for storing the observables - here so it's accessible outside of the try-block
+    std::vector<double> k_values;
+    std::vector<double> A_s;
+    std::vector<double> A_t;
+    std::vector<double> r;
+    std::vector<double> n_s;
+    std::vector<double> n_t;
 
     // From here, we need to enclose the rest of the code in a try-catch statement in order to catch
     // when a particular set of initial conditions fails to integrate or if there is a problem with the
@@ -158,7 +169,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Construct some (comoving) k values exiting at at nEND-60, nEND-59, nEND-58, ..., nEND-50.
         // std::vector< std::vector<double> > Nk_values;
-        std::vector<double> k_values;
+//        std::vector<double> k_values;
         for (int i = 60; i >= 50; --i)
         {
             double N_value = nEND - i;
@@ -198,7 +209,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk2->set_adaptive_ics_efolds(4.5);
 
         // construct an equilateral threepf task based on the kt values made above
-        tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics, times_sample, kts, alpha_equi, beta_equi);
+        tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics,
+                times_sample, kts, alpha_equi, beta_equi);
         tk3e->set_adaptive_ics_efolds(4.5);
 
         std::cout << "time_size: " << times_sample.size() << std::endl;
@@ -234,7 +246,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         for (int i = 0; i < k_values.size(); i++)
         {
             double sum = 0;
-            for (int j = 0; j < 13; j++) {
+            for (int j = 0; j < 13; j++)
+            {
                 sum += samples[(13*i)+j];
             }
             mean[i] = sum / 13.0;
@@ -243,7 +256,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         for (int i = 0; i < k_values.size(); i++)
         {
             double sum_sq = 0;
-            for (int j = 0; j < 13; j++) {
+            for (int j = 0; j < 13; j++)
+            {
                 sum_sq += pow(samples[(13*i)+j] - mean[i], 2);
             }
             std_dev[i] = sqrt(sum_sq / (times_sample.size() - 1)); // divide by 12 for N-1 samples
@@ -266,11 +280,11 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             }
         }
 
-        // find A_s & A_t for each k mode exiting at Nend-10, ..., Nend etc. We take the final time value at Nend to be the
-        // amplitude for the scalar and tensor modes. The tensor-to-scalar ratio r is the ratio of these values.
-        std::vector<double> A_s;
-        std::vector<double> A_t;
-        std::vector<double> r;
+        // find A_s & A_t for each k mode exiting at Nend-10, ..., Nend etc. We take the final time value at Nend to be
+        // the amplitude for the scalar and tensor modes. The tensor-to-scalar ratio r is the ratio of these values.
+//        std::vector<double> A_s;
+//        std::vector<double> A_t;
+//        std::vector<double> r;
         for (int k = 0; k < k_values.size(); ++k)
         {
             int index = (times_sample.size() * k) + (times_sample.size() -1);
@@ -286,7 +300,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             std::cout << "r: " << r[i] << std::endl;
         }
 
-        //! Construct log values of A and k for the n_s & n_t splines
+        //! Construct log values of A and k for the n_s & n_t splines TODO: compare to non-log diff
         // construct two vectors of log A_s & log A_t values
         std::vector<double> logA_s;
         std::vector<double> logA_t;
@@ -307,8 +321,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::spline1d<double> nt_spline( logK, logA_t );
 
         // use the eval_diff method in the splines to compute n_s and n_t for each k value
-        std::vector<double> n_s;
-        std::vector<double> n_t;
+//        std::vector<double> n_s;
+//        std::vector<double> n_t;
         for (int j = 0; j < logK.size(); ++j)
         {
             double temp = ns_spline.eval_diff(logK[j]) + 1.0; // add 1 for the n_s-1 scalar index convention
@@ -318,13 +332,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             std::cout << "n_s for " << logK[j] << " is: " << temp << std::endl;
             std::cout << "n_t for " << logK[j] << " is: " << temp2 << std::endl;
         }
-
-        block->put_val( inflation::twopf_name, "k_values", k_values );
-        block->put_val( inflation::twopf_name, "A_s", A_s );
-        block->put_val( inflation::twopf_name, "A_t", A_t );
-        block->put_val( inflation::twopf_name, "n_s", n_s );
-        block->put_val( inflation::twopf_name, "n_t", n_t );
-        block->put_val( inflation::twopf_name, "r", r );
 
         //! INTEGRATE OUR TASKS CREATED FOR THE EQUILATERAL 3-POINT FUNCTION ABOVE
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
@@ -381,7 +388,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::cout << "!!! FAILED TO COMPUTE HORIZON EXIT FOR ALL K MODES !!!" << std::endl;
         inflation::failed_horizonExit = 1;
     } catch (transport::adaptive_ics_before_Ninit& xe) {
-        std::cout << "!!! THE ADAPTIVE INITIAL CONDITIONS REQUIRE AN INTEGRATION TIME BEFORE N_INITIAL !!!" <<  std::endl;
+        std::cout << "!!! THE ADAPTIVE INITIAL CONDITIONS REQUIRE INTEGRATION TIME BEFORE N_INITIAL !!!" <<  std::endl;
         inflation::ics_before_start = 1;
     } catch (le60inflation& xe) {
         std::cout << "!!! WE HAVE LESS THAN 60 E-FOLDS OF INFLATION !!!" << std::endl;
@@ -391,11 +398,16 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         inflation::time_var_pow_spec = 1;
     }
 
-    /* TODO: Here there needs to be some way of returning the data to the datablock - this will hopefully produces an ini file
-    with all the initial conditions, the values for A_s, A_t, n_s, n_t, r, B_equi, f_NL_equi for each horizon exit value */
+    // Use the put_val method to add A_s, k_values, A_t, n_s, n_t & r to the datablock - currently only adding the values
+    // for the first (index 0) for a k mode exiting at nEND-60.
+    status = block->put_val( inflation::twopf_name, "A_s", A_s[0] );
+    status = block->put_val( inflation::twopf_name, "k_values", k_values[0] );
+    status = block->put_val( inflation::twopf_name, "A_t", A_t[0] );
+    status = block->put_val( inflation::twopf_name, "n_s", n_s[0] );
+    status = block->put_val( inflation::twopf_name, "n_t", n_t[0] );
+    status = block->put_val( inflation::twopf_name, "r", r[0] );
 
-
-    DATABLOCK_STATUS status = DBS_SUCCESS;
+    // return status variable declared at the start of the function
     return status;
 }
 
