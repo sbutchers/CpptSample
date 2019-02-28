@@ -43,7 +43,8 @@ namespace inflation {
     }
 
     // Unsigned ints for capturing failed samples
-    unsigned int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V, failed_horizonExit, ics_before_start, inflate60, time_var_pow_spec;
+    unsigned int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V,
+    failed_horizonExit, ics_before_start, inflate60, time_var_pow_spec;
 }
 
 // exception for catching when <60 e-folds inflation given as we need at least 60 e-folds for sampling
@@ -59,6 +60,55 @@ struct time_varying_spectrum : public std::exception {
         return "time varying spectrum";
     }
 };
+
+//// Class to find physical wave-numbers using the matching equation from reheating
+//class find_physical_k
+//{
+//public:
+//    //! CONSTRUCTOR
+//    find_physical_k(transport::model<double>* m, double n_END)
+//    :   model(m),
+//        Nend(n_END)
+//    {
+//        return;
+//    }
+//
+//    //! MOVE CONSTRUCTOR
+//    find_physical_k(find_physical_k&&) = default;
+//
+//    //! DESTRUCTOR
+//    ~find_physical_k() = default;
+//
+//protected:
+//    transport::model<double>* model;
+//    double Nend;
+//
+//private:
+//    double a_0 = 1.0; // present-day scale factor (PROBABLY A SILLY NUMBER)
+//    double A_eq = 5.25E-6; // numerical constant from expression for Heq
+//    double h = 0.7; // dimensionless Hubble parameter
+//    double Omega_0 = 0.001; // measure of spatial flatness today
+//    double rho_eq = 1E6; // energy density at matter-radiation equality (CURRENTLY A SILLY NUMBER)
+//    double rho_reh = 1E10; // energy density at the end of reheating (ALSO A SILLY NUMBER)
+//
+//public:
+//    double find_Hubble()
+//    {
+//        return model::H(0, 0);
+//    }
+//
+//    double return_phys_k (double N)
+//    {
+//        double const_matching = a_0/(A_eq * pow(h, 2) * Omega_0) * std::pow(rho_eq/rho_reh, 1.0/4.0);
+//        double Ndesired = Nend - N; // matching equation counts back from the end of inflation
+//        return const_matching * find_Hubble(Ndesired) * exp(-Ndesired);
+//    }
+//
+//    double find_k_pivot (double kPivot)
+//    {
+//
+//    }
+//};
 
 static transport::local_environment env;
 static transport::argument_cache arg;
@@ -167,9 +217,17 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Interpolate the N and log(aH) values.
         transport::spline1d<double> spline(N, log_aH);
 
+//        // Give the H values
+//        std::vector<double> H(2*model->get_N_fields());
+//        model->H(params, H);
+//        for (auto i: H)
+//        {
+//            std::cout << "Hubble values: " << i << std::endl;
+//        }
+
         // Construct some (comoving) k values exiting at at nEND-60, nEND-59, nEND-58, ..., nEND-50.
         // std::vector< std::vector<double> > Nk_values;
-//        std::vector<double> k_values;
+        // std::vector<double> k_values;
         for (int i = 60; i >= 50; --i)
         {
             double N_value = nEND - i;
