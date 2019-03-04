@@ -27,6 +27,7 @@ namespace inflation {
     const char *sectionName = "cppt_sample";
     const char *paramsSection = "inflation_parameters";
     const char *twopf_name = "twopf_observables";
+    const char *thrpf_name = "thrpf_observables";
     
     double M_P, V0, eta_R, g_R, lambda_R, alpha, R0, R_init, theta_init, Rdot_init, thetadot_init;
 
@@ -60,55 +61,6 @@ struct time_varying_spectrum : public std::exception {
         return "time varying spectrum";
     }
 };
-
-//// Class to find physical wave-numbers using the matching equation from reheating
-//class find_physical_k
-//{
-//public:
-//    //! CONSTRUCTOR
-//    find_physical_k(transport::model<double>* m, double n_END)
-//    :   model(m),
-//        Nend(n_END)
-//    {
-//        return;
-//    }
-//
-//    //! MOVE CONSTRUCTOR
-//    find_physical_k(find_physical_k&&) = default;
-//
-//    //! DESTRUCTOR
-//    ~find_physical_k() = default;
-//
-//protected:
-//    transport::model<double>* model;
-//    double Nend;
-//
-//private:
-//    double a_0 = 1.0; // present-day scale factor (PROBABLY A SILLY NUMBER)
-//    double A_eq = 5.25E-6; // numerical constant from expression for Heq
-//    double h = 0.7; // dimensionless Hubble parameter
-//    double Omega_0 = 0.001; // measure of spatial flatness today
-//    double rho_eq = 1E6; // energy density at matter-radiation equality (CURRENTLY A SILLY NUMBER)
-//    double rho_reh = 1E10; // energy density at the end of reheating (ALSO A SILLY NUMBER)
-//
-//public:
-//    double find_Hubble()
-//    {
-//        return model::H(0, 0);
-//    }
-//
-//    double return_phys_k (double N)
-//    {
-//        double const_matching = a_0/(A_eq * pow(h, 2) * Omega_0) * std::pow(rho_eq/rho_reh, 1.0/4.0);
-//        double Ndesired = Nend - N; // matching equation counts back from the end of inflation
-//        return const_matching * find_Hubble(Ndesired) * exp(-Ndesired);
-//    }
-//
-//    double find_k_pivot (double kPivot)
-//    {
-//
-//    }
-//};
 
 static transport::local_environment env;
 static transport::argument_cache arg;
@@ -178,13 +130,19 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     transport::basic_range<DataType> dummy_times{N_init, Nendhigh, 2, transport::spacing::linear};
     transport::background_task<DataType> bkg{ics, dummy_times};
 
-    // declare the std::vectors needed for storing the observables - here so it's accessible outside of the try-block
+    //! Declare the std::vectors needed for storing the observables - here so it's accessible outside of the try-block
+    // Twopf observables
     std::vector<double> k_values;
     std::vector<double> A_s;
     std::vector<double> A_t;
     std::vector<double> r;
     std::vector<double> n_s;
     std::vector<double> n_t;
+    std::vector<double> n_s_nonLog;
+    std::vector<double> n_t_nonLog;
+    // Threepf observables
+    std::vector<double> B_equi;
+    std::vector<double> fNL_equi;
 
     // From here, we need to enclose the rest of the code in a try-catch statement in order to catch
     // when a particular set of initial conditions fails to integrate or if there is a problem with the
@@ -227,7 +185,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Construct some (comoving) k values exiting at at nEND-60, nEND-59, nEND-58, ..., nEND-50.
         // std::vector< std::vector<double> > Nk_values;
-        // std::vector<double> k_values;
         for (int i = 60; i >= 50; --i)
         {
             double N_value = nEND - i;
@@ -271,9 +228,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
                 times_sample, kts, alpha_equi, beta_equi);
         tk3e->set_adaptive_ics_efolds(4.5);
 
-        std::cout << "time_size: " << times_sample.size() << std::endl;
-        std::cout << "kts_size: " << kts.size() << std::endl;
-
         // construct a squeezed threepf task based on the kt values made above.
         // transport::threepf_alphabeta_task<DataType> tk3s{"gelaton.threepf-squeezed", ics, times, kts, alpha_sqz, beta_sqz};
         // tk3s.set_collect_initial_conditions(true).set_adaptive_ics_efolds(3.0);
@@ -294,10 +248,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             model->twopf_kmode(*t, tk2.get(), batcher, 1);
         }
 
-        for (int i = 0; i < tens_samples_twpf.size(); ++i)
-        {
-            std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << samples[i] << " ; Tensor 2pf: " << tens_samples_twpf[i] << std::endl;
-        }
+//        for (int i = 0; i < tens_samples_twpf.size(); ++i)
+//        {
+//            std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << samples[i] << " ; Tensor 2pf: " << tens_samples_twpf[i] << std::endl;
+//        }
 
         // find the std deviation & mean of the power spectrum amplitudes
         std::vector<double> mean(11), std_dev(11);
@@ -326,7 +280,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         for (int i = 0; i < mean.size(); ++i)
         {
             dispersion[i] = std_dev[i]/mean[i];
-            std::cout << dispersion[i] << std::endl;
+//            std::cout << dispersion[i] << std::endl;
         }
 
         // throw the time-varying exception defined above if the dispersion is >10%
@@ -340,9 +294,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // find A_s & A_t for each k mode exiting at Nend-10, ..., Nend etc. We take the final time value at Nend to be
         // the amplitude for the scalar and tensor modes. The tensor-to-scalar ratio r is the ratio of these values.
-//        std::vector<double> A_s;
-//        std::vector<double> A_t;
-//        std::vector<double> r;
         for (int k = 0; k < k_values.size(); ++k)
         {
             int index = (times_sample.size() * k) + (times_sample.size() -1);
@@ -351,12 +302,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             r.push_back( tens_samples_twpf[index] / samples[index] );
         }
 
-        for (int i=0; i < A_s.size(); i++)
-        {
-            std::cout << "A_s: " << A_s[i] << std::endl;
-            std::cout << "A_t: " << A_t[i] << std::endl;
-            std::cout << "r: " << r[i] << std::endl;
-        }
+//        for (int i=0; i < A_s.size(); i++)
+//        {
+//            std::cout << "A_s: " << A_s[i] << std::endl;
+//            std::cout << "A_t: " << A_t[i] << std::endl;
+//            std::cout << "r: " << r[i] << std::endl;
+//        }
 
         //! Construct log values of A and k for the n_s & n_t splines TODO: compare to non-log diff
         // construct two vectors of log A_s & log A_t values
@@ -379,8 +330,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::spline1d<double> nt_spline( logK, logA_t );
 
         // use the eval_diff method in the splines to compute n_s and n_t for each k value
-//        std::vector<double> n_s;
-//        std::vector<double> n_t;
         for (int j = 0; j < logK.size(); ++j)
         {
             double temp = ns_spline.eval_diff(logK[j]) + 1.0; // add 1 for the n_s-1 scalar index convention
@@ -391,35 +340,49 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             std::cout << "n_t for " << logK[j] << " is: " << temp2 << std::endl;
         }
 
+        // Repeat differentiation without using logs
+        transport::spline1d<double> ns_spline_nonlog(k_values, A_s);
+        transport::spline1d<double> nt_spline_nonlog(k_values, A_t);
+
+        // use the eval_diff method in the splines to compute n_s and n_t for each k value
+        for (int i = 0; i < k_values.size(); ++i)
+        {
+            double temp = ns_spline_nonlog.eval_diff(k_values[i]) * (k_values[i]/A_s[i]) + 1.0;
+            double temp2 = nt_spline_nonlog.eval_diff(k_values[i]) * (k_values[i]/A_t[i]);
+            n_s_nonLog.emplace_back(temp);
+            n_t_nonLog.emplace_back(temp2);
+            std::cout << "n_s (non-log) for " << logK[i] << " is: " << temp << std::endl;
+            std::cout << "n_t (non-log) for " << logK[i] << " is: " << temp2 << std::endl;
+        }
+
         //! INTEGRATE OUR TASKS CREATED FOR THE EQUILATERAL 3-POINT FUNCTION ABOVE
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
-//        std::vector<double> twopf_samples;
-//        std::vector<double> tens_samples_thpf;
-//        std::vector<double> threepf_samples;
-//        std::vector<double> redbsp_samples;
-//        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
-//
-//        // Integrate all of threepf samples provided in the tk3e task
-//        auto db2 = tk3e->get_threepf_database();
-//        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
-//        {
-//            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
-//        }
-//
+        std::vector<double> twopf_samples;
+        std::vector<double> tens_samples_thpf;
+        std::vector<double> threepf_samples;
+        std::vector<double> redbsp_samples;
+        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
+
+        // Integrate all of threepf samples provided in the tk3e task
+        auto db2 = tk3e->get_threepf_database();
+        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
+        {
+            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
+        }
+
 //        for (auto i = 0; i < threepf_samples.size(); i++)
 //        {
 //            std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << " ; Redbsp: " << redbsp_samples[i] << std::endl;
 //        }
-//
-//        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for each k mode
-//        std::vector<double> B_equi(kts.size());
-//        std::vector<double> fNL_equi(kts.size());
-//        for (int j = 0; j < kts.size(); j++) {
-//            int index = (times_sample.size() * j) + (times_sample.size() -1);
-//            B_equi[j] = threepf_samples[index];
-//            fNL_equi[j] = redbsp_samples[index];
-//        }
+
+        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for each k mode
+        for (int j = 0; j < kts.size(); j++)
+        {
+            int index = (times_sample.size() * j) + (times_sample.size() -1);
+            B_equi.emplace_back( threepf_samples[index] );
+            fNL_equi.emplace_back( redbsp_samples[index] );
+        }
 
     } catch (transport::end_of_inflation_not_found& xe) {
         std::cout << "!!! END OF INFLATION NOT FOUND !!!" << std::endl;
@@ -456,14 +419,18 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         inflation::time_var_pow_spec = 1;
     }
 
-    // Use the put_val method to add A_s, k_values, A_t, n_s, n_t & r to the datablock - currently only adding the values
-    // for the first (index 0) for a k mode exiting at nEND-60.
+    //! Return the calculated observables to the databloack
+    // Use the put_val method to add second-order observables (A_s, k_values, A_t, n_s, n_t & r to the datablock
+    // currently only adding the values for the first (index 0) item for a k mode exiting at nEND-60.
     status = block->put_val( inflation::twopf_name, "A_s", A_s[0] );
     status = block->put_val( inflation::twopf_name, "k_values", k_values[0] );
     status = block->put_val( inflation::twopf_name, "A_t", A_t[0] );
     status = block->put_val( inflation::twopf_name, "n_s", n_s[0] );
     status = block->put_val( inflation::twopf_name, "n_t", n_t[0] );
     status = block->put_val( inflation::twopf_name, "r", r[0] );
+    // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
+    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi[0] );
+    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi[0] );
 
     // return status variable declared at the start of the function
     return status;
