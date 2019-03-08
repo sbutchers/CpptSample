@@ -4,31 +4,35 @@
 #include <cosmosis/datablock/section_names.h>
 // CppTransport includes
 #include "gelaton_mpi.h"
-#include <boost/math/interpolators/barycentric_rational.hpp>
-#include <boost/range/adaptors.hpp>
-#include <boost/math/tools/roots.hpp>
 #include "transport-runtime/utilities/spline1d.h"
 #include "transport-runtime/tasks/integration_detail/abstract.h"
 #include "transport-runtime/models/advisory_classes.h"
-#include <memory>
-#include "math.h"
 #include "transport-runtime/tasks/integration_detail/twopf_task.h"
 #include "transport-runtime/enumerations.h"
-#include "boost/filesystem.hpp"
+#include "transport-runtime/tasks/integration_detail/twopf_db_task.h"
+// Other includes
+#include <memory>
+#include "math.h"
 #include <exception>
+#include "boost/filesystem.hpp"
+#include <boost/math/interpolators/barycentric_rational.hpp>
+#include <boost/range/adaptors.hpp>
+#include <boost/math/tools/roots.hpp>
 // Include batcher file for integration
 #include "sampling_integration_batcher.h"
 
-// Conveniences for CppTransport
+// Conveniences for CppTransport TODO: remove these - in practice we're always using std::vector<double> or doubles.
 using DataType = double;
 using StateType = std::vector<DataType>;
 
 namespace inflation {
+    // Some names for different sections in the cosmosis datablock
     const char *sectionName = "cppt_sample";
     const char *paramsSection = "inflation_parameters";
     const char *twopf_name = "twopf_observables";
     const char *thrpf_name = "thrpf_observables";
-    
+
+    // These are the Lagrangian parameters for our model (including field initial conditions).
     double M_P, V0, eta_R, g_R, lambda_R, alpha, R0, R_init, theta_init, Rdot_init, thetadot_init;
 
     // function to create a transport::parameters<DataType> object called params
@@ -156,14 +160,49 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             throw le60inflation();
         }
 
+        // construct a test twopf task to use with the compute_aH function later
         transport::basic_range<double> times{N_init, nEND, 500, transport::spacing::linear};
 //        std::cout << nEND << std::endl;
-
-        // construct a test twopf task to use with the compute_aH function later
         transport::basic_range<double> k_test{exp(0.0), exp(0.0), 1, transport::spacing::log_bottom};
-
         transport::twopf_task<DataType> tk2_test{"gelaton.twopf_test", ics, times, k_test};
         tk2_test.set_collect_initial_conditions(true).set_adaptive_ics_efolds(5.0);
+
+        //! Matching equation for physical wave-numbers
+        // Compute the log(H) values across the inflation time range.
+        std::vector<double> N_H;
+        std::vector<double> log_H;
+        model->compute_H(&tk2_test, N_H, log_H);
+
+        // Set-up the different parameters needed for the matching equation
+        std::vector<double> N_reversed (N_H.rbegin(), N_H.rend()); // matching equation needs e-folds in reverse order
+        double Hend = log_H.back(); // value of H at the end of inflation
+        double norm_const = std::log(1E16); // matching equation has constant = 1E16 GeV (energy scale of inflation?) TODO: change this number to reflect our H being dimensionless in MPlanck units
+        double k_pivot = 0.05; // pivot scale defined as 0.05 h^-1 Mpc^-1 here
+        double e_fold_const = 55.75; // constant defined in the matching eq.
+
+        // Set-up the matching equation solutions across the inflation time range. TODO: Rewrite this as log(k) = ... instead.
+        std::vector<double> physical_k (log_H.size());
+        for (int i = 0; i < log_H.size(); ++i)
+        {
+            physical_k[i] = k_pivot * std::exp(e_fold_const - N_reversed[i] - norm_const + log_H[i] - Hend);
+        }
+
+        // Set-up a spline to use with the bisection method defined later.
+        transport::spline1d<double> spline_match_eq (N_reversed, physical_k);
+
+        // Set-up a bisection using a spline to extract a value of N_exit from some desired value of phys_k
+        template <typename SplineObject, typename Tolerance_Policy>
+        double compute_Nexit_for_physical_k (double Phys_k, SplineObject& matching_eq, Tolerance_Policy tol)
+        {
+            matching_eq.set_offset(Phys_k);
+            std::string& task_name = "find Nexit of physical wavenumber";
+            std::string bracket_error = "extreme values of N didn't bracket the exit value"
+            double Nexit = task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
+
+            return Nexit;
+        }
+
+        // TODO: change the construction of k values below to be finding them from the exit times of physical wave numbers in [1e-4, 1] Mpc^(-1).
 
         // Use the compute aH method to be able to find the values through-out the duration of inflation.
         // These will be used to find appropriate k values exiting at specific e-foldings by setting k=aH
@@ -174,14 +213,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         model->compute_aH(&tk2_test, N, log_aH, log_a2H2M);
         // Interpolate the N and log(aH) values.
         transport::spline1d<double> spline(N, log_aH);
-
-//        // Give the H values
-//        std::vector<double> H(2*model->get_N_fields());
-//        model->H(params, H);
-//        for (auto i: H)
-//        {
-//            std::cout << "Hubble values: " << i << std::endl;
-//        }
 
         // Construct some (comoving) k values exiting at at nEND-60, nEND-59, nEND-58, ..., nEND-50.
         // std::vector< std::vector<double> > Nk_values;
