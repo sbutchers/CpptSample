@@ -66,6 +66,24 @@ struct time_varying_spectrum : public std::exception {
     }
 };
 
+// definition of tolerance for the bisection of physical k values
+struct ToleranceCondition {
+    bool operator () (double min, double max) {
+        return abs(min - max) <= 1E-6;
+    }
+};
+
+// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of phys_k
+double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq, ToleranceCondition tol)
+{
+    matching_eq.set_offset(std::log(Phys_k));
+    std::string task_name = "find N_exit of physical wave-number";
+    std::string bracket_error = "extreme values of N didn't bracket the exit value";
+    double Nexit;
+    Nexit = transport::task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
+    return Nexit;
+}
+
 static transport::local_environment env;
 static transport::argument_cache arg;
 static std::unique_ptr< transport::gelaton_mpi<DataType, StateType> > model;
@@ -162,7 +180,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // construct a test twopf task to use with the compute_aH function later
         transport::basic_range<double> times{N_init, nEND, 500, transport::spacing::linear};
-//        std::cout << nEND << std::endl;
         transport::basic_range<double> k_test{exp(0.0), exp(0.0), 1, transport::spacing::log_bottom};
         transport::twopf_task<DataType> tk2_test{"gelaton.twopf_test", ics, times, k_test};
         tk2_test.set_collect_initial_conditions(true).set_adaptive_ics_efolds(5.0);
@@ -175,32 +192,28 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Set-up the different parameters needed for the matching equation
         std::vector<double> N_reversed (N_H.rbegin(), N_H.rend()); // matching equation needs e-folds in reverse order
+        std::vector<double> H_reversed (log_H.rbegin(), log_H.rend()); // matching eqn also needs reversed H
         double Hend = log_H.back(); // value of H at the end of inflation
-        double norm_const = std::log(1E16); // matching equation has constant = 1E16 GeV (energy scale of inflation?) TODO: change this number to reflect our H being dimensionless in MPlanck units
+        double norm_const = std::log(243.5363); // dimnless matching equation has constant = M_P / 1E16 GeV
         double k_pivot = 0.05; // pivot scale defined as 0.05 h^-1 Mpc^-1 here
         double e_fold_const = 55.75; // constant defined in the matching eq.
 
-        // Set-up the matching equation solutions across the inflation time range. TODO: Rewrite this as log(k) = ... instead.
-        std::vector<double> physical_k (log_H.size());
-        for (int i = 0; i < log_H.size(); ++i)
+        // Set-up the matching equation solutions across the inflation time range.
+        std::vector<double> log_physical_k (H_reversed.size());
+        for (int i = 0; i < H_reversed.size(); ++i)
         {
-            physical_k[i] = k_pivot * std::exp(e_fold_const - N_reversed[i] - norm_const + log_H[i] - Hend);
+            // log_physical_k[i] = k_pivot * std::exp(e_fold_const - N_reversed[i] - norm_const + log_H[i] - Hend); // exp version
+            log_physical_k[i] = std::log(k_pivot) + e_fold_const - N_reversed[i] - norm_const + H_reversed[i] - Hend;
+            // std::cout << "log k[" << i << "] = " << log_physical_k[i] << std::endl;
         }
 
         // Set-up a spline to use with the bisection method defined later.
-        transport::spline1d<double> spline_match_eq (N_reversed, physical_k);
-
-        // Set-up a bisection using a spline to extract a value of N_exit from some desired value of phys_k
-        template <typename SplineObject, typename Tolerance_Policy>
-        double compute_Nexit_for_physical_k (double Phys_k, SplineObject& matching_eq, Tolerance_Policy tol)
-        {
-            matching_eq.set_offset(Phys_k);
-            std::string& task_name = "find Nexit of physical wavenumber";
-            std::string bracket_error = "extreme values of N didn't bracket the exit value"
-            double Nexit = task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
-
-            return Nexit;
-        }
+        transport::spline1d<double> spline_match_eq (N_reversed, log_physical_k);
+        // Set-up a tolerance condition for using with the bisection function
+        ToleranceCondition tol;
+        // Use the bisection method to find the e-fold exit of k pivot.
+        double N_pivot_exit = compute_Nexit_for_physical_k(0.05, spline_match_eq, tol);
+        std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
 
         // TODO: change the construction of k values below to be finding them from the exit times of physical wave numbers in [1e-4, 1] Mpc^(-1).
 
@@ -450,7 +463,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         inflation::time_var_pow_spec = 1;
     }
 
-    //! Return the calculated observables to the databloack
+    //! Return the calculated observables to the datablock
     // Use the put_val method to add second-order observables (A_s, k_values, A_t, n_s, n_t & r to the datablock
     // currently only adding the values for the first (index 0) item for a k mode exiting at nEND-60.
     status = block->put_val( inflation::twopf_name, "A_s", A_s[0] );
