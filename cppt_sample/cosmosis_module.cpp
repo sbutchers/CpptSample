@@ -31,6 +31,8 @@ namespace inflation {
     const char *paramsSection = "inflation_parameters";
     const char *twopf_name = "twopf_observables";
     const char *thrpf_name = "thrpf_observables";
+    const char *spec_file = "wavenumber_spectrum";
+    const char *fail_names = "failed_samples";
 
     // These are the Lagrangian parameters for our model (including field initial conditions).
     double M_P, V0, eta_R, g_R, lambda_R, alpha, R0, R_init, theta_init, Rdot_init, thetadot_init;
@@ -47,8 +49,8 @@ namespace inflation {
         return output;
     }
 
-    // Unsigned ints for capturing failed samples
-    unsigned int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V,
+    // Ints for capturing failed samples
+    int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V,
     failed_horizonExit, ics_before_start, inflate60, time_var_pow_spec;
 }
 
@@ -69,7 +71,7 @@ struct time_varying_spectrum : public std::exception {
 // definition of tolerance for the bisection of physical k values
 struct ToleranceCondition {
     bool operator () (double min, double max) {
-        return abs(min - max) <= 1E-6;
+        return abs(min - max) <= 1E-12;
     }
 };
 
@@ -81,13 +83,51 @@ double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>&
     std::string bracket_error = "extreme values of N didn't bracket the exit value";
     double Nexit;
     Nexit = transport::task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
+    matching_eq.set_offset(0.0);
     return Nexit;
+}
+
+// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of phys_k (EXPONENTIAL VERSION)
+double compute_exit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq, ToleranceCondition tol)
+{
+    matching_eq.set_offset(Phys_k);
+    std::string task_name = "find N_exit of physical wave-number";
+    std::string bracket_error = "extreme values of N didn't bracket the exit value";
+    double Nexit;
+    Nexit = transport::task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
+    matching_eq.set_offset(0.0);
+    return Nexit;
+}
+
+// Set-up a function to create a log-spaced std::vector similar to numpy.logspace
+class Logspace {
+private:
+    double curValue, base;
+
+public:
+    Logspace(double first, double base) : curValue(first), base(base) {}
+
+    double operator()() {
+        double retval = curValue;
+        curValue *= base;
+        return retval;
+    }
+};
+std::vector<double> pyLogspace (double start, double stop, int num, double base = 10) {
+    double logStart = pow(base, start);
+    double logBase = pow(base, (stop-start)/num);
+
+    std::vector<double> log_vector;
+    log_vector.reserve(num+1);
+    std::generate_n(std::back_inserter(log_vector), num+1, Logspace(logStart, logBase));
+    return log_vector;
 }
 
 static transport::local_environment env;
 static transport::argument_cache arg;
 static std::unique_ptr< transport::gelaton_mpi<DataType, StateType> > model;
 static std::unique_ptr< transport::twopf_task<DataType> > tk2;
+static std::unique_ptr< transport::twopf_task<double> > tk2_piv;
 static std::unique_ptr< transport::threepf_alphabeta_task<DataType> > tk3e;
 
 extern "C" {
@@ -110,7 +150,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // Initialise DATABLOCK_STATUS to 0 - this is returned at end of function
     DATABLOCK_STATUS status = (DATABLOCK_STATUS)0;
 
-    // Read in inflation parameters (Lagrangian and field initial values)
+    //! Read in inflation parameters (Lagrangian and field initial values)
     block->get_val(inflation::paramsSection, "V_0",           inflation::V0);
     block->get_val(inflation::paramsSection, "eta_R",         inflation::eta_R);
     block->get_val(inflation::paramsSection, "g_R",           inflation::g_R);
@@ -165,6 +205,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // Threepf observables
     std::vector<double> B_equi;
     std::vector<double> fNL_equi;
+    // Placeholder k vectors for testing
+    // Use the pyLogspace function to produce log-spaced values between 10^(-4) & 1 Mpc^(-1)
+    std::vector<double> Phys_waveno_sample = pyLogspace(-4.0, 0.0, 200, 10);
+    std::vector<double> k_conventional;
+    std::vector<double> k_exp_convention;
+    std::vector<double> k_conventional_lin(Phys_waveno_sample.size());
 
     // From here, we need to enclose the rest of the code in a try-catch statement in order to catch
     // when a particular set of initial conditions fails to integrate or if there is a problem with the
@@ -190,32 +236,67 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::vector<double> log_H;
         model->compute_H(&tk2_test, N_H, log_H);
 
+        //! Try the matching equation in the exponential form
+        // set-up the parameters
+        double sqrtHend = std::sqrt(std::exp(log_H.back()));
+        double kPivot = 0.05;
+        double dimnless_const = 243.5363;
+        double efolds_const = 55.75;
+
         // Set-up the different parameters needed for the matching equation
         std::vector<double> N_reversed (N_H.rbegin(), N_H.rend()); // matching equation needs e-folds in reverse order
-        std::vector<double> H_reversed (log_H.rbegin(), log_H.rend()); // matching eqn also needs reversed H
-        double Hend = log_H.back(); // value of H at the end of inflation
+        double Hend = 0.5 * log_H.back(); // value of H at the end of inflation
         double norm_const = std::log(243.5363); // dimnless matching equation has constant = M_P / 1E16 GeV
-        double k_pivot = 0.05; // pivot scale defined as 0.05 h^-1 Mpc^-1 here
+        double k_pivot = std::log(0.05); // pivot scale defined as 0.05 Mpc^-1 here
         double e_fold_const = 55.75; // constant defined in the matching eq.
+        double constants = e_fold_const + k_pivot + norm_const - Hend;
+        std::cout << "Constants = " << constants << std::endl;
 
-        // Set-up the matching equation solutions across the inflation time range.
-        std::vector<double> log_physical_k (H_reversed.size());
-        for (int i = 0; i < H_reversed.size(); ++i)
+        //! set-up the exp matching eqn
+        std::vector<double> physical_k (N_reversed.size());
+        for (int i = 0; i < N_reversed.size(); ++i)
         {
-            // log_physical_k[i] = k_pivot * std::exp(e_fold_const - N_reversed[i] - norm_const + log_H[i] - Hend); // exp version
-            log_physical_k[i] = std::log(k_pivot) + e_fold_const - N_reversed[i] - norm_const + H_reversed[i] - Hend;
-            // std::cout << "log k[" << i << "] = " << log_physical_k[i] << std::endl;
+            physical_k[i] = ( (dimnless_const * kPivot * std::exp(log_H[i])) / sqrtHend ) *
+                    std::exp(efolds_const - N_reversed[i]);
         }
 
-        // Set-up a spline to use with the bisection method defined later.
-        transport::spline1d<double> spline_match_eq (N_reversed, log_physical_k);
+        // Set-up the matching equation solutions across the inflation time range.
+        std::vector<double> log_physical_k (N_reversed.size());
+        for (int i = 0; i < N_reversed.size(); ++i)
+        {
+            log_physical_k[i] = k_pivot + e_fold_const - N_reversed[i] + norm_const + log_H[i] - Hend;
+            //std::cout << "N[i] = " << N_reversed[i] << ", log k[" << i << "] = " << log_physical_k[i] << std::endl;
+        }
+
         // Set-up a tolerance condition for using with the bisection function
         ToleranceCondition tol;
+        // Set-up a spline to use with the bisection method defined later.
+        transport::spline1d<double> spline_match_eq (N_reversed, log_physical_k);
+
+        //! Set-up a spline for the exp matching eqn
+        transport::spline1d<double> spline_match_exp (N_reversed, physical_k);
+
         // Use the bisection method to find the e-fold exit of k pivot.
         double N_pivot_exit = compute_Nexit_for_physical_k(0.05, spline_match_eq, tol);
         std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
+        std::cout << "k* from spline is:" << spline_match_eq(N_pivot_exit) << std::endl;
 
-        // TODO: change the construction of k values below to be finding them from the exit times of physical wave numbers in [1e-4, 1] Mpc^(-1).
+        //! Use the bisection method to find the e-fold exit of k pivot. (EXP VERSION)
+        double n_Pivot_Exit = compute_exit_for_physical_k(0.05, spline_match_exp, tol);
+        std::cout << "EXP: e-fold exit for k* is: " << n_Pivot_Exit << std::endl;
+        std::cout << "EXP: k* from spline is:" << spline_match_exp(n_Pivot_Exit) << std::endl;
+
+        // Construct a vector of exit times (= no. of e-folds BEFORE the end of inflation!)
+        std::vector<double> Phys_k_exits (Phys_waveno_sample.size());
+        for (int i = 0; i < Phys_k_exits.size(); ++i) {
+            Phys_k_exits[i] = compute_Nexit_for_physical_k(Phys_waveno_sample[i], spline_match_eq, tol);
+        }
+
+        //! Construct a vector of exit times (= no. of e-folds BEFORE the end of inflation!) (EXP VERSION)
+        std::vector<double> k_exit_times (Phys_waveno_sample.size());
+        for (int i = 0; i < k_exit_times.size(); ++i) {
+            k_exit_times[i] = compute_exit_for_physical_k(Phys_waveno_sample[i], spline_match_exp, tol);
+        }
 
         // Use the compute aH method to be able to find the values through-out the duration of inflation.
         // These will be used to find appropriate k values exiting at specific e-foldings by setting k=aH
@@ -225,14 +306,59 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::vector<double> log_a2H2M;
         model->compute_aH(&tk2_test, N, log_aH, log_a2H2M);
         // Interpolate the N and log(aH) values.
-        transport::spline1d<double> spline(N, log_aH);
+        transport::spline1d<double> aH_spline(N, log_aH);
 
+        // Construct CppT normalised k numbers by finding the value of aH @ N(k_cross) and then divide by
+        // aH @ N_pre
+        for (auto i: Phys_k_exits) {
+            double N_value = nEND - i;
+            double k_value = exp( aH_spline(N_value) ) / exp( aH_spline(N_pre) );
+            // std::cout << i << "\t" << N_value << "\t" << k_value << std::endl;
+            k_conventional.push_back(k_value);
+        }
+
+        //! Construct CppT normalised k numbers by finding the value of aH @ N(k_cross) and then divide by aH[N_pre] (EXP_VERSION)
+        for (auto i: k_exit_times) {
+            double N_order = nEND - i;
+            double k_value = std::exp(aH_spline(N_order)) / std::exp(aH_spline(N_pre));
+            k_exp_convention.push_back(k_value);
+        }
+
+        //! Construct a CppT normalised wavenumber for the pivot scale (=0.05Mpc^-1) using the aH method
+        double k_pivot_cppt = std::exp(aH_spline(nEND - N_pivot_exit)) / std::exp(aH_spline(N_pre));
+
+        //! Construct aH values by using the matching eqn in the form k[aH]
+        double aEnd = std::exp(log_aH.back() - log_H.back());
+        double aH_constant = (dimnless_const * kPivot * std::exp(efolds_const)) / (aEnd * sqrtHend);
+        std::vector<double> aH_value(Phys_waveno_sample.size());
+        for (int i = 0; i < Phys_waveno_sample.size(); ++i) {
+            aH_value[i] = Phys_waveno_sample[i] / aH_constant;
+            double N_value = nEND - k_exit_times[i];
+            //std::cout << aH_value[i] << "\t" << std::exp( aH_spline(N_value) ) << std::endl;
+        }
+
+//        for (int i = 0; i < k_conventional.size(); ++i) {
+//            std::cout << "k_conv: " << k_conventional[i] << "\t k_exp: " << k_exp_convention[i] << "\t difference: " << (k_conventional[i] - k_exp_convention[i]) <<std::endl;
+//        }
+
+        // Try doing same thing with linearity between phys_k and k_cppt
+        double N_pre_reversed = nEND - N_pre;
+        double linearity_constant = spline_match_eq(N_pre_reversed);
+        std::cout << "Linearity const = " << exp(linearity_constant) << std::endl;
+
+        for (int i = 0; i < k_conventional_lin.size(); ++i) {
+            k_conventional_lin[i] = Phys_waveno_sample[i] / exp(linearity_constant);
+            //std::cout << Phys_k_exits[i] << "\t" << k_conventional_lin[i] << "\t" << k_conventional[i] << std::endl;
+        }
+
+        //! ################################################################################
+
+        //! OLD WAY OF CONSTRUCTING THE WAVENUMBERS
         // Construct some (comoving) k values exiting at at nEND-60, nEND-59, nEND-58, ..., nEND-50.
-        // std::vector< std::vector<double> > Nk_values;
         for (int i = 60; i >= 50; --i)
         {
             double N_value = nEND - i;
-            double k_value = exp( spline(N_value) );
+            double k_value = exp( aH_spline(N_value) );
             // std::cout << i << "\t" << N_value << "\t" << k_value << std::endl;
             k_values.push_back(k_value);
         }
@@ -241,18 +367,31 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // N_pre as defined above. Divide the k numbers by this value to get conventional normalisation.
         for (int i = 0; i < k_values.size(); ++i)
         {
-            k_values[i] = k_values[i] / exp( spline(N_pre) );
+            k_values[i] = k_values[i] / exp( aH_spline(N_pre) );
             // std::cout << k_values[i] << std::endl;
         }
+        //! END OF OLD WAY OF CONSTRUCTING WAVENUMBERS
+
+        //! ################################################################################
 
         // use the vector of k values to build a transport::basic_range object to use for integration
         transport::aggregate_range<double> ks;
+        for (int i = 0; i < k_conventional.size(); ++i)
+        {
+            transport::basic_range<double> k_temp{k_conventional[i], k_conventional[i], 1, transport::spacing::log_bottom};
+            ks += k_temp;
+        }
+
+        // Use the cppt normalised kpivot value to build an integration task
+        transport::basic_range<double> k_pivot_range{k_pivot_cppt, k_pivot_cppt, 1, transport::spacing::log_bottom};
+
+        // Do the same thing for kt but not as many because 3pf integrations are longer!
         transport::aggregate_range<double> kts;
         for (int i = 0; i < k_values.size(); ++i)
         {
-            transport::basic_range<double> k_temp{k_values[i], k_values[i], 1, transport::spacing::log_bottom};
+            // transport::basic_range<double> k_temp{k_values[i], k_values[i], 1, transport::spacing::log_bottom};
             transport::basic_range<double> kt_temp{3.0*k_values[i], 3.0*k_values[i], 1, transport::spacing::log_bottom};
-            ks += k_temp;
+            //ks += k_temp;
             kts += kt_temp;
         }
 
@@ -267,6 +406,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk2 = std::make_unique< transport::twopf_task<DataType> > ("gelaton.twopf", ics, times_sample, ks);
         tk2->set_adaptive_ics_efolds(4.5);
 
+        // construct a twopf task for the pivot scale
+        tk2_piv = std::make_unique< transport::twopf_task<double> > ("gelaton.twopf-pivot", ics, times_sample, k_pivot_range);
+        tk2_piv->set_adaptive_ics_efolds(4.5);
+
         // construct an equilateral threepf task based on the kt values made above
         tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics,
                 times_sample, kts, alpha_equi, beta_equi);
@@ -277,15 +420,38 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // tk3s.set_collect_initial_conditions(true).set_adaptive_ics_efolds(3.0);
 
         //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
-        // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples, a boost
-        // filesystem path for logging and an unsigned int for logging as well.
-        std::vector<double> samples;
-        std::vector<double> tens_samples_twpf;
+        // All batchers need the filesystem path and an unsigned int for logging
         boost::filesystem::path lp(boost::filesystem::current_path());
         unsigned int w;
+
+        //! Pivot task
+        std::vector<double> pivot_twopf_samples;
+        std::vector<double> tens_pivot_samples;
+        twopf_sampling_batcher pivot_batcher(pivot_twopf_samples, tens_pivot_samples, lp, w, model.get(), tk2_piv.get());
+
+        // Integrate the pivot task
+        auto db_piv = tk2_piv->get_twopf_database();
+        for (auto t = db_piv.record_cbegin(); t != db_piv.record_cend(); ++t)
+        {
+            model->twopf_kmode(*t, tk2_piv.get(), pivot_batcher, 1);
+        }
+
+        for (int i = 0; i < pivot_twopf_samples.size(); ++i) {
+            std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << pivot_twopf_samples[i] << " ; Tensor 2pf: " << tens_pivot_samples[i] << std::endl;
+        }
+
+        // Extract the A_s & a_t values
+        double A_s_Pivot = pivot_twopf_samples.back();
+        double A_t_Pivot = tens_pivot_samples.back();
+
+
+        //! Big twopf task for CLASS or CAMB
+        // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
+        std::vector<double> samples;
+        std::vector<double> tens_samples_twpf;
         twopf_sampling_batcher batcher(samples, tens_samples_twpf, lp, w, model.get(), tk2.get());
         
-        // Integrate all of the twopf samples provided above in the tk2 task - this is working with the new batcher!
+        // Integrate all of the twopf samples provided above in the tk2 task
         auto db = tk2->get_twopf_database();
         for (auto t = db.record_cbegin(); t != db.record_cend(); ++t)
         {
@@ -298,8 +464,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //        }
 
         // find the std deviation & mean of the power spectrum amplitudes
-        std::vector<double> mean(11), std_dev(11);
-        for (int i = 0; i < k_values.size(); i++)
+        std::vector<double> mean(k_conventional.size()), std_dev(k_conventional.size());
+        for (int i = 0; i < k_conventional.size(); i++)
         {
             double sum = 0;
             for (int j = 0; j < 13; j++)
@@ -309,7 +475,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             mean[i] = sum / 13.0;
         }
 
-        for (int i = 0; i < k_values.size(); i++)
+        for (int i = 0; i < k_conventional.size(); i++)
         {
             double sum_sq = 0;
             for (int j = 0; j < 13; j++)
@@ -338,7 +504,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // find A_s & A_t for each k mode exiting at Nend-10, ..., Nend etc. We take the final time value at Nend to be
         // the amplitude for the scalar and tensor modes. The tensor-to-scalar ratio r is the ratio of these values.
-        for (int k = 0; k < k_values.size(); ++k)
+        for (int k = 0; k < k_conventional.size(); ++k)
         {
             int index = (times_sample.size() * k) + (times_sample.size() -1);
             A_s.push_back(samples[index]);
@@ -353,7 +519,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //            std::cout << "r: " << r[i] << std::endl;
 //        }
 
-        //! Construct log values of A and k for the n_s & n_t splines TODO: compare to non-log diff
+        //! Construct log values of A and k for the n_s & n_t splines
         // construct two vectors of log A_s & log A_t values
         std::vector<double> logA_s;
         std::vector<double> logA_t;
@@ -364,7 +530,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         }
         // construct a vector of ln(k) values
         std::vector<double> logK;
-        for (auto& i: k_values)
+        for (auto& i: k_conventional)
         {
             logK.push_back(log(i));
         }
@@ -385,14 +551,14 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         }
 
         // Repeat differentiation without using logs
-        transport::spline1d<double> ns_spline_nonlog(k_values, A_s);
-        transport::spline1d<double> nt_spline_nonlog(k_values, A_t);
+        transport::spline1d<double> ns_spline_nonlog(k_conventional, A_s);
+        transport::spline1d<double> nt_spline_nonlog(k_conventional, A_t);
 
         // use the eval_diff method in the splines to compute n_s and n_t for each k value
-        for (int i = 0; i < k_values.size(); ++i)
+        for (int i = 0; i < k_conventional.size(); ++i)
         {
-            double temp = ns_spline_nonlog.eval_diff(k_values[i]) * (k_values[i]/A_s[i]) + 1.0;
-            double temp2 = nt_spline_nonlog.eval_diff(k_values[i]) * (k_values[i]/A_t[i]);
+            double temp = ns_spline_nonlog.eval_diff(k_conventional[i]) * (k_conventional[i]/A_s[i]) + 1.0;
+            double temp2 = nt_spline_nonlog.eval_diff(k_conventional[i]) * (k_conventional[i]/A_t[i]);
             n_s_nonLog.emplace_back(temp);
             n_t_nonLog.emplace_back(temp2);
             std::cout << "n_s (non-log) for " << logK[i] << " is: " << temp << std::endl;
@@ -406,27 +572,27 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::vector<double> tens_samples_thpf;
         std::vector<double> threepf_samples;
         std::vector<double> redbsp_samples;
-        threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
+        //threepf_sampling_batcher thpf_batcher(twopf_samples, tens_samples_thpf, threepf_samples, redbsp_samples, lp, w, model.get(), tk3e.get());
 
         // Integrate all of threepf samples provided in the tk3e task
-        auto db2 = tk3e->get_threepf_database();
-        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
-        {
-            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
-        }
+//        auto db2 = tk3e->get_threepf_database();
+//        for (auto t = db2.record_cbegin(); t!= db2.record_cend(); ++t)
+//        {
+//            model->threepf_kmode(*t, tk3e.get(), thpf_batcher, 1);
+//        }
 
 //        for (auto i = 0; i < threepf_samples.size(); i++)
 //        {
 //            std::cout << "Threepf sample no: " << i << " - " << threepf_samples[i] << " ; Redbsp: " << redbsp_samples[i] << std::endl;
 //        }
 
-        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for each k mode
-        for (int j = 0; j < kts.size(); j++)
-        {
-            int index = (times_sample.size() * j) + (times_sample.size() -1);
-            B_equi.emplace_back( threepf_samples[index] );
-            fNL_equi.emplace_back( redbsp_samples[index] );
-        }
+//        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for each k mode
+//        for (int j = 0; j < kts.size(); j++)
+//        {
+//            int index = (times_sample.size() * j) + (times_sample.size() -1);
+//            B_equi.emplace_back( threepf_samples[index] );
+//            fNL_equi.emplace_back( redbsp_samples[index] );
+//        }
 
     } catch (transport::end_of_inflation_not_found& xe) {
         std::cout << "!!! END OF INFLATION NOT FOUND !!!" << std::endl;
@@ -463,6 +629,17 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         inflation::time_var_pow_spec = 1;
     }
 
+    //! CREATE A TEMPORARY PATH & FILE FOR PASSING WAVENUMBER INFORMATION TO THE DATABLOCK FOR CLASS
+    boost::filesystem::path temp_path = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
+    std::cout << "Temp. path = " << temp_path.string() << std::endl;
+    std::ofstream outf(temp_path.string(), std::ios_base::out | std::ios_base::trunc);
+    for (int i = 0; i < Phys_waveno_sample.size(); ++i) {
+        outf << Phys_waveno_sample[i] << "\t";
+        outf << A_s[i] << "\t";
+        outf << A_t[i] << "\n";
+    }
+    outf.close();
+
     //! Return the calculated observables to the datablock
     // Use the put_val method to add second-order observables (A_s, k_values, A_t, n_s, n_t & r to the datablock
     // currently only adding the values for the first (index 0) item for a k mode exiting at nEND-60.
@@ -473,8 +650,22 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::twopf_name, "n_t", n_t[0] );
     status = block->put_val( inflation::twopf_name, "r", r[0] );
     // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
-    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi[0] );
-    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi[0] );
+//    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi[0] );
+//    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi[0] );
+    // Use put_val to write the temporary file with k, P_s(k) and P_t(k) information for CLASS
+    status = block->put_val( inflation::spec_file, "spec_table", temp_path.string() );
+    // Use put_val to write the information about any caught exceptions to the datablock.
+    status = block->put_val( inflation::fail_names, "no_end_inflation",   no_end_inflate);
+    status = block->put_val( inflation::fail_names, "negative_Hsq",       neg_Hsq);
+    status = block->put_val( inflation::fail_names, "integrate_nan",      integrate_nan);
+    status = block->put_val( inflation::fail_names, "zero_massless_time", zero_massless);
+    status = block->put_val( inflation::fail_names, "negative_epsilon",   neg_epsilon);
+    status = block->put_val( inflation::fail_names, "eps_geq_three",      large_epsilon);
+    status = block->put_val( inflation::fail_names, "negative_pot",       neg_V);
+    status = block->put_val( inflation::fail_names, "noFind_hor_exit",    failed_horizonExit);
+    status = block->put_val( inflation::fail_names, "ICs_before_start",   ics_before_start);
+    status = block->put_val( inflation::fail_names, "leq_60_efolds",      inflate60);
+    status = block->put_val( inflation::fail_names, "varying_Spec",       time_var_pow_spec);
 
     // return status variable declared at the start of the function
     return status;
