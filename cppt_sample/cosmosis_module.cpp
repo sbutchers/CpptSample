@@ -49,7 +49,7 @@ namespace inflation {
         return output;
     }
 
-    // Ints for capturing failed samples
+    // ints for capturing failed samples
     int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V,
     failed_horizonExit, ics_before_start, inflate60, time_var_pow_spec;
 }
@@ -87,18 +87,6 @@ double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>&
     return Nexit;
 }
 
-// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of phys_k (EXPONENTIAL VERSION)
-double compute_exit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq, ToleranceCondition tol)
-{
-    matching_eq.set_offset(Phys_k);
-    std::string task_name = "find N_exit of physical wave-number";
-    std::string bracket_error = "extreme values of N didn't bracket the exit value";
-    double Nexit;
-    Nexit = transport::task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
-    matching_eq.set_offset(0.0);
-    return Nexit;
-}
-
 // Set-up a function to create a log-spaced std::vector similar to numpy.logspace
 class Logspace {
 private:
@@ -123,12 +111,15 @@ std::vector<double> pyLogspace (double start, double stop, int num, double base 
     return log_vector;
 }
 
+// Create instances of the model and separate integration tasks for the two-point function -> a sampling one and a task
+// at k_pivot=0.05Mpc^(-1), and three-point function task with k=k_pivot for the equilateral and squeezed configurations
 static transport::local_environment env;
 static transport::argument_cache arg;
 static std::unique_ptr< transport::gelaton_mpi<DataType, StateType> > model;
 static std::unique_ptr< transport::twopf_task<DataType> > tk2;
 static std::unique_ptr< transport::twopf_task<double> > tk2_piv;
 static std::unique_ptr< transport::threepf_alphabeta_task<DataType> > tk3e;
+static std::unique_ptr< transport::threepf_alphabeta_task<double> > tk3s;
 
 extern "C" {
 
@@ -136,7 +127,7 @@ void * setup(cosmosis::DataBlock * options)
 {
     // Read options from the CosmoSIS configuration ini file,
     // passed via the "options" argument
-    options->get_val(inflation::sectionName, "M_P", inflation::M_P);
+    options->get_val(inflation::sectionName, "M_P", inflation::M_P); // TODO: add option to choose number of wavenumbers to sample over here.
 
     // Record any configuration information required
     model = std::make_unique< transport::gelaton_mpi<DataType, StateType> > (env, arg);
@@ -181,7 +172,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
     // Create the parameters and initial_conditions objects that CppTransport needs using
     // the two functions defined above.
-    using namespace inflation;
+    using namespace inflation; // TODO: Get rid of this line
     transport::parameters<DataType> params{M_P, inflation::parameter_creator(R0, V0, eta_R, g_R, lambda_R, alpha),
                                            model.get()};
     transport::initial_conditions<DataType> ics{"gelaton", params, inflation::init_cond_creator(R_init, theta_init,
@@ -205,12 +196,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // Threepf observables
     std::vector<double> B_equi;
     std::vector<double> fNL_equi;
-    // Placeholder k vectors for testing
+    // Wavenumber k vectors for passing to CLASS, CAMB or another Boltzmann code
     // Use the pyLogspace function to produce log-spaced values between 10^(-4) & 1 Mpc^(-1)
-    std::vector<double> Phys_waveno_sample = pyLogspace(-4.0, 0.0, 200, 10);
-    std::vector<double> k_conventional;
-    std::vector<double> k_exp_convention;
-    std::vector<double> k_conventional_lin(Phys_waveno_sample.size());
+    std::vector<double> Phys_waveno_sample = pyLogspace(-3.0, 0.0, 15, 10);
+    std::vector<double> k_conventional(Phys_waveno_sample.size());
 
     // From here, we need to enclose the rest of the code in a try-catch statement in order to catch
     // when a particular set of initial conditions fails to integrate or if there is a problem with the
@@ -224,7 +213,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             throw le60inflation();
         }
 
-        // construct a test twopf task to use with the compute_aH function later
+        // construct a test twopf task to use with the compute_H function later
         transport::basic_range<double> times{N_init, nEND, 500, transport::spacing::linear};
         transport::basic_range<double> k_test{exp(0.0), exp(0.0), 1, transport::spacing::log_bottom};
         transport::twopf_task<DataType> tk2_test{"gelaton.twopf_test", ics, times, k_test};
@@ -236,68 +225,59 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::vector<double> log_H;
         model->compute_H(&tk2_test, N_H, log_H);
 
-        //! Try the matching equation in the exponential form
-        // set-up the parameters
-        double sqrtHend = std::sqrt(std::exp(log_H.back()));
-        double kPivot = 0.05;
-        double dimnless_const = 243.5363;
-        double efolds_const = 55.75;
-
         // Set-up the different parameters needed for the matching equation
-        std::vector<double> N_reversed (N_H.rbegin(), N_H.rend()); // matching equation needs e-folds in reverse order
         double Hend = 0.5 * log_H.back(); // value of H at the end of inflation
-        double norm_const = std::log(243.5363); // dimnless matching equation has constant = M_P / 1E16 GeV
+        double norm_const = std::log(243.5363 * pow(3.0, 0.25)); // dimnless matching equation has constant = (3^(1/4)*M_P)/1E16 GeV
         double k_pivot = std::log(0.05); // pivot scale defined as 0.05 Mpc^-1 here
         double e_fold_const = 55.75; // constant defined in the matching eq.
-        double constants = e_fold_const + k_pivot + norm_const - Hend;
-        std::cout << "Constants = " << constants << std::endl;
+        double constants = e_fold_const + k_pivot + norm_const - Hend; // wrap up constants in a single term
 
-        //! set-up the exp matching eqn
-        std::vector<double> physical_k (N_reversed.size());
-        for (int i = 0; i < N_reversed.size(); ++i)
+        // Find the matching equation solutions across the inflation time range.
+        std::vector<double> log_physical_k (N_H.size());
+        for (int i = 0; i < N_H.size(); ++i)
         {
-            physical_k[i] = ( (dimnless_const * kPivot * std::exp(log_H[i])) / sqrtHend ) *
-                    std::exp(efolds_const - N_reversed[i]);
-        }
-
-        // Set-up the matching equation solutions across the inflation time range.
-        std::vector<double> log_physical_k (N_reversed.size());
-        for (int i = 0; i < N_reversed.size(); ++i)
-        {
-            log_physical_k[i] = k_pivot + e_fold_const - N_reversed[i] + norm_const + log_H[i] - Hend;
-            //std::cout << "N[i] = " << N_reversed[i] << ", log k[" << i << "] = " << log_physical_k[i] << std::endl;
+            log_physical_k[i] = log_H[i] - (nEND - N_H[i]) + constants;
         }
 
         // Set-up a tolerance condition for using with the bisection function
         ToleranceCondition tol;
         // Set-up a spline to use with the bisection method defined later.
-        transport::spline1d<double> spline_match_eq (N_reversed, log_physical_k);
-
-        //! Set-up a spline for the exp matching eqn
-        transport::spline1d<double> spline_match_exp (N_reversed, physical_k);
+        transport::spline1d<double> spline_match_eq (N_H, log_physical_k);
 
         // Use the bisection method to find the e-fold exit of k pivot.
         double N_pivot_exit = compute_Nexit_for_physical_k(0.05, spline_match_eq, tol);
         std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
         std::cout << "k* from spline is:" << spline_match_eq(N_pivot_exit) << std::endl;
 
-        //! Use the bisection method to find the e-fold exit of k pivot. (EXP VERSION)
-        double n_Pivot_Exit = compute_exit_for_physical_k(0.05, spline_match_exp, tol);
-        std::cout << "EXP: e-fold exit for k* is: " << n_Pivot_Exit << std::endl;
-        std::cout << "EXP: k* from spline is:" << spline_match_exp(n_Pivot_Exit) << std::endl;
-
         // Construct a vector of exit times (= no. of e-folds BEFORE the end of inflation!)
         std::vector<double> Phys_k_exits (Phys_waveno_sample.size());
-        for (int i = 0; i < Phys_k_exits.size(); ++i) {
+        for (int i = 0; i < Phys_k_exits.size(); ++i)
+        {
             Phys_k_exits[i] = compute_Nexit_for_physical_k(Phys_waveno_sample[i], spline_match_eq, tol);
+            std::cout << Phys_waveno_sample[i] << "Mpc^(-1) exits at: " << Phys_k_exits[i] << " e-folds." << std::endl;
         }
 
-        //! Construct a vector of exit times (= no. of e-folds BEFORE the end of inflation!) (EXP VERSION)
-        std::vector<double> k_exit_times (Phys_waveno_sample.size());
-        for (int i = 0; i < k_exit_times.size(); ++i) {
-            k_exit_times[i] = compute_exit_for_physical_k(Phys_waveno_sample[i], spline_match_exp, tol);
+        //! Construct the wave-numbers using a linearity relation.
+        // Build CppT normalised wave-numbers by using the linear relation k_phys = gamma * k_cppt and k_cppt[Npre] == 1
+        double gamma = spline_match_eq(N_pre);
+        std::cout << "Linearity const = " << exp(gamma) << std::endl;
+        for (int i = 0; i < k_conventional.size(); ++i) {
+            k_conventional[i] = Phys_waveno_sample[i] / exp(gamma);
+            std::cout << Phys_k_exits[i] << "\t" << k_conventional[i] << std::endl;
         }
 
+        // Construct a CppT normalised wave-number for the pivot scale (=0.05Mpc^-1) using the linearity constant
+        double k_pivot_cppt = 0.05 / std::exp(gamma);
+
+        // Use the CppT normalised kpivot value to build a wave-number range for kpivot only
+        transport::basic_range<double> k_pivot_range{k_pivot_cppt, k_pivot_cppt, 1, transport::spacing::linear};
+        // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
+        transport::basic_range<double> kt_pivot_range{3.0*k_pivot_cppt, 3.0*k_pivot_cppt, 1, transport::spacing::linear};
+
+        //! ################################################################################
+
+        //! OLD WAY OF CONSTRUCTING THE WAVENUMBERS - this found wavenumbers exiting at nEND-60 up to nEND-50 by finding
+        //! the value of aH at these times and then rescaling with the value at nPre for CppT normalisation
         // Use the compute aH method to be able to find the values through-out the duration of inflation.
         // These will be used to find appropriate k values exiting at specific e-foldings by setting k=aH
         // at the desired value of N.
@@ -307,73 +287,19 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         model->compute_aH(&tk2_test, N, log_aH, log_a2H2M);
         // Interpolate the N and log(aH) values.
         transport::spline1d<double> aH_spline(N, log_aH);
-
-        // Construct CppT normalised k numbers by finding the value of aH @ N(k_cross) and then divide by
-        // aH @ N_pre
-        for (auto i: Phys_k_exits) {
-            double N_value = nEND - i;
-            double k_value = exp( aH_spline(N_value) ) / exp( aH_spline(N_pre) );
-            // std::cout << i << "\t" << N_value << "\t" << k_value << std::endl;
-            k_conventional.push_back(k_value);
-        }
-
-        //! Construct CppT normalised k numbers by finding the value of aH @ N(k_cross) and then divide by aH[N_pre] (EXP_VERSION)
-        for (auto i: k_exit_times) {
-            double N_order = nEND - i;
-            double k_value = std::exp(aH_spline(N_order)) / std::exp(aH_spline(N_pre));
-            k_exp_convention.push_back(k_value);
-        }
-
-        //! Construct a CppT normalised wavenumber for the pivot scale (=0.05Mpc^-1) using the aH method
-        double k_pivot_cppt = std::exp(aH_spline(nEND - N_pivot_exit)) / std::exp(aH_spline(N_pre));
-
-        //! Construct aH values by using the matching eqn in the form k[aH]
-        double aEnd = std::exp(log_aH.back() - log_H.back());
-        double aH_constant = (dimnless_const * kPivot * std::exp(efolds_const)) / (aEnd * sqrtHend);
-        std::vector<double> aH_value(Phys_waveno_sample.size());
-        for (int i = 0; i < Phys_waveno_sample.size(); ++i) {
-            aH_value[i] = Phys_waveno_sample[i] / aH_constant;
-            double N_value = nEND - k_exit_times[i];
-            //std::cout << aH_value[i] << "\t" << std::exp( aH_spline(N_value) ) << std::endl;
-        }
-
-//        for (int i = 0; i < k_conventional.size(); ++i) {
-//            std::cout << "k_conv: " << k_conventional[i] << "\t k_exp: " << k_exp_convention[i] << "\t difference: " << (k_conventional[i] - k_exp_convention[i]) <<std::endl;
-//        }
-
-        // Try doing same thing with linearity between phys_k and k_cppt
-        double N_pre_reversed = nEND - N_pre;
-        double linearity_constant = spline_match_eq(N_pre_reversed);
-        std::cout << "Linearity const = " << exp(linearity_constant) << std::endl;
-
-        for (int i = 0; i < k_conventional_lin.size(); ++i) {
-            k_conventional_lin[i] = Phys_waveno_sample[i] / exp(linearity_constant);
-            //std::cout << Phys_k_exits[i] << "\t" << k_conventional_lin[i] << "\t" << k_conventional[i] << std::endl;
-        }
-
-        //! ################################################################################
-
-        //! OLD WAY OF CONSTRUCTING THE WAVENUMBERS
         // Construct some (comoving) k values exiting at at nEND-60, nEND-59, nEND-58, ..., nEND-50.
         for (int i = 60; i >= 50; --i)
         {
             double N_value = nEND - i;
             double k_value = exp( aH_spline(N_value) );
-            // std::cout << i << "\t" << N_value << "\t" << k_value << std::endl;
             k_values.push_back(k_value);
         }
-
         // To get these k numbers to be conventionally normalised, we need the value of aH given at
         // N_pre as defined above. Divide the k numbers by this value to get conventional normalisation.
         for (int i = 0; i < k_values.size(); ++i)
         {
             k_values[i] = k_values[i] / exp( aH_spline(N_pre) );
-            // std::cout << k_values[i] << std::endl;
         }
-        //! END OF OLD WAY OF CONSTRUCTING WAVENUMBERS
-
-        //! ################################################################################
-
         // use the vector of k values to build a transport::basic_range object to use for integration
         transport::aggregate_range<double> ks;
         for (int i = 0; i < k_conventional.size(); ++i)
@@ -381,46 +307,45 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             transport::basic_range<double> k_temp{k_conventional[i], k_conventional[i], 1, transport::spacing::log_bottom};
             ks += k_temp;
         }
-
-        // Use the cppt normalised kpivot value to build an integration task
-        transport::basic_range<double> k_pivot_range{k_pivot_cppt, k_pivot_cppt, 1, transport::spacing::log_bottom};
-
         // Do the same thing for kt but not as many because 3pf integrations are longer!
         transport::aggregate_range<double> kts;
         for (int i = 0; i < k_values.size(); ++i)
         {
-            // transport::basic_range<double> k_temp{k_values[i], k_values[i], 1, transport::spacing::log_bottom};
             transport::basic_range<double> kt_temp{3.0*k_values[i], 3.0*k_values[i], 1, transport::spacing::log_bottom};
-            //ks += k_temp;
             kts += kt_temp;
         }
 
+        //! END OF OLD WAY OF CONSTRUCTING WAVENUMBERS
+
+        //! ################################################################################
+
+        //! Construct the integration tasks for the different configurations
         // Some alphas and betas needed specifically for equilateral and squeezed configs.
         transport::basic_range<double> alpha_equi{0.0, 0.0, 0, transport::spacing::linear};
         transport::basic_range<double> beta_equi{1.0/3.0, 1.0/3.0, 0, transport::spacing::linear};
         transport::basic_range<double> alpha_sqz{0.0, 0.0, 0, transport::spacing::linear};
-        transport::basic_range<double> beta_sqz{0.98, 0.9999, 10, transport::spacing::log_bottom};
+        transport::basic_range<double> beta_sqz{0.98, 0.99, 1, transport::spacing::linear};
+        // Set-up a time sample for integrations at the end of inflation so we can extract A_s, A_t etc. while giving
+        // a wide enough interval to check the values are stable.
+        transport::basic_range<double> times_sample{nEND-11.0, nEND, 12, transport::spacing::linear};
         
         // construct a twopf task based on the k values generated above
-        transport::basic_range<double> times_sample{nEND-11.0, nEND, 12, transport::spacing::linear};
         tk2 = std::make_unique< transport::twopf_task<DataType> > ("gelaton.twopf", ics, times_sample, ks);
         tk2->set_adaptive_ics_efolds(4.5);
-
         // construct a twopf task for the pivot scale
         tk2_piv = std::make_unique< transport::twopf_task<double> > ("gelaton.twopf-pivot", ics, times_sample, k_pivot_range);
         tk2_piv->set_adaptive_ics_efolds(4.5);
-
-        // construct an equilateral threepf task based on the kt values made above
+        // construct an equilateral threepf task based on the kt pivot scale made above
         tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics,
-                times_sample, kts, alpha_equi, beta_equi);
+                times_sample, kt_pivot_range, alpha_equi, beta_equi);
         tk3e->set_adaptive_ics_efolds(4.5);
-
-        // construct a squeezed threepf task based on the kt values made above.
-        // transport::threepf_alphabeta_task<DataType> tk3s{"gelaton.threepf-squeezed", ics, times, kts, alpha_sqz, beta_sqz};
-        // tk3s.set_collect_initial_conditions(true).set_adaptive_ics_efolds(3.0);
+        // construct a squeezed threepf task based on the kt pivot scale made above.
+        tk3s = std::make_unique< transport::threepf_alphabeta_task<double> > ("gelaton.threepf-squeezed", ics,
+                times_sample, kt_pivot_range, alpha_sqz, beta_sqz);
+        tk3s->set_adaptive_ics_efolds(4.5);
 
         //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
-        // All batchers need the filesystem path and an unsigned int for logging
+        // All batchers need the filesystem path and an unsigned int for logging TODO: Double check these are ok to use for every task!
         boost::filesystem::path lp(boost::filesystem::current_path());
         unsigned int w;
 
