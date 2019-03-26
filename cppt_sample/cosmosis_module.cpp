@@ -130,58 +130,9 @@ double spec_derivative(const double k, const double dk, std::vector<double> Ampl
     return (dAdk * k_div_A);
 }
 
-// Set-up a function that checks the power spectrum values contained in samples with k and t samples stored in k_vector
-// and time_vector for strongly-varying spectrum values. This is when the std deviation of the times samples for a given
-// k_sample is 10% of of the mean value.
-//bool dispersion_check(transport::range<double> k_vector, transport::range<double> time_vector, std::vector<double> samples)
-//{
-//    size_t k_size = k_vector.size(); // no. of k samples being checked
-//    size_t time_size = time_vector.size(); // no of t samples to avg over
-//    // find the mean of the power spectrum amplitudes
-//    std::vector<double> mean(k_size), std_dev(k_size);
-//    for (int i = 0; i < k_size; i++)
-//    {
-//        double sum = 0;
-//        for (int j = 0; j < time_size; j++)
-//        {
-//            sum += samples[(time_size*i)+j];
-//        }
-//        mean[i] = sum / time_size;
-//    }
-//
-//    // find sum_square values for standard deviation
-//    for (int i = 0; i < k_size; i++)
-//    {
-//        double sum_sq = 0;
-//        for (int j = 0; j < time_size; j++)
-//        {
-//            sum_sq += pow(samples[(time_size*i)+j] - mean[i], 2);
-//        }
-//        std_dev[i] = sqrt(sum_sq / (time_size - 1)); // divide by time_size-1 for N-1 samples
-//    }
-//
-//    // find a measure of the dispersion of power spectrum values -> std-dev/mean
-//    std::vector<double> dispersion(k_size);
-//    for (int i = 0; i < mean.size(); ++i)
-//    {
-//        dispersion[i] = std_dev[i]/mean[i];
-//        std::cout << dispersion[i] << std::endl;
-//    }
-//
-//    // return true if the dispersion is >10% for any of the k samples
-//    for (auto i: dispersion)
-//    {
-//        if (i > 0.1)
-//        {
-//            std::cout << "Spectrum is varying!" << std::endl;
-//            return true;
-//        }
-//    }
-//
-//    std::cout << "Spectrum is stable." << std::endl;
-//    return false;
-//}
-
+// Set-up a dispersion class that has a function which checks the power spectrum values contained in samples with k and
+// t samples stored in k_size and time_size for strongly-varying spectrum values. This is when the std deviation of
+// the times samples for a given k_sample is 10% of of the mean value.
 class dispersion
 {
 // Constructors etc.
