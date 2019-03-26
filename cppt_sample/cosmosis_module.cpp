@@ -15,15 +15,10 @@
 #include "math.h"
 #include <exception>
 #include "boost/filesystem.hpp"
-//#include <boost/math/interpolators/barycentric_rational.hpp>
 #include <boost/range/adaptors.hpp>
 #include <boost/math/tools/roots.hpp>
 // Include batcher file for integration
 #include "sampling_integration_batcher.h"
-
-// Conveniences for CppTransport TODO: remove these - in practice we're always using std::vector<double> or doubles.
-using DataType = double;
-using StateType = std::vector<double>;
 
 namespace inflation {
     // Some names for different sections in the cosmosis datablock
@@ -41,14 +36,14 @@ namespace inflation {
     int num_k_samples;
 
     // function to create a transport::parameters<double> object called params
-    StateType parameter_creator(double R0, double V0, double eta_R, double g_R, double lambda_R, double alpha) {
-        StateType output{R0, V0, eta_R, g_R, lambda_R, alpha};
+    std::vector<double> parameter_creator(double R0, double V0, double eta_R, double g_R, double lambda_R, double alpha) {
+        std::vector<double> output{R0, V0, eta_R, g_R, lambda_R, alpha};
         return output; 
     }
 
-    // function to create a StateType vector containing initial conditons
-    StateType init_cond_creator(double R_init, double theta_init, double Rdot_init, double thetadot_init) {
-        StateType output{R_init, theta_init, Rdot_init, thetadot_init};
+    // function to create a std::vector<double> vector containing initial conditons
+    std::vector<double> init_cond_creator(double R_init, double theta_init, double Rdot_init, double thetadot_init) {
+        std::vector<double> output{R_init, theta_init, Rdot_init, thetadot_init};
         return output;
     }
 
@@ -269,7 +264,7 @@ protected:
 // at k_pivot=0.05Mpc^(-1), and three-point function task with k=k_pivot for the equilateral and squeezed configurations
 static transport::local_environment env;
 static transport::argument_cache arg;
-static std::unique_ptr< transport::gelaton_mpi<double, StateType> > model;
+static std::unique_ptr< transport::gelaton_mpi<double, std::vector<double>> > model;
 static std::unique_ptr< transport::twopf_task<double> > tk2;
 static std::unique_ptr< transport::twopf_task<double> > tk2_piv;
 static std::unique_ptr< transport::threepf_alphabeta_task<double> > tk3e;
@@ -285,7 +280,7 @@ void * setup(cosmosis::DataBlock * options)
     options->get_val(inflation::sectionName, "k_samples", inflation::num_k_samples);
 
     // Record any configuration information required
-    model = std::make_unique< transport::gelaton_mpi<double, StateType> > (env, arg);
+    model = std::make_unique< transport::gelaton_mpi<double, std::vector<double>> > (env, arg);
 
     // Pass back any object you like
     return options;
@@ -327,18 +322,17 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
     // Create the parameters and initial_conditions objects that CppTransport needs using
     // the two functions defined above.
-    using namespace inflation; // TODO: Get rid of this line
-    transport::parameters<double> params{M_P, inflation::parameter_creator(R0, V0, eta_R, g_R, lambda_R, alpha),
-                                           model.get()};
-    transport::initial_conditions<double> ics{"gelaton", params, inflation::init_cond_creator(R_init, theta_init,
-            Rdot_init, thetadot_init), N_init, N_pre};
+    transport::parameters<double> params{inflation::M_P, inflation::parameter_creator(inflation::R0, inflation::V0,
+            inflation::eta_R, inflation::g_R, inflation::lambda_R, inflation::alpha), model.get()};
+    transport::initial_conditions<double> ics{"gelaton", params, inflation::init_cond_creator(inflation::R_init,
+            inflation::theta_init, inflation::Rdot_init, inflation::thetadot_init), N_init, N_pre};
     
     // Use a silly end value to find nEND and set the time range used by CppT to finish at nEND.
     double Nendhigh = 10000;
     transport::basic_range<double> dummy_times{N_init, Nendhigh, 2, transport::spacing::linear};
     transport::background_task<double> bkg{ics, dummy_times};
 
-    //! Declare the std::vectors needed for storing the observables - here so it's accessible outside of the try-block
+    //! Declare the doubles needed for storing the observables - here so it's accessible outside of the try-block
     // Pivot task observables
     // Twopf observables
     double k_pivot_cppt;
@@ -348,16 +342,13 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     double ns_pivot;
     double nt_pivot;
     std::vector<double> r;
-    std::vector<double> n_s;
-    std::vector<double> n_t;
-    std::vector<double> n_s_nonLog;
-    std::vector<double> n_t_nonLog;
     // Threepf observables (at pivot scale)
     double B_equi_piv;
     double fNL_equi_piv;
     double B_squ_piv;
     double fNL_squ_piv;
 
+    //! Objects needed for creating & storing the big twopf task for passing to a Boltzmann code.
     // Wavenumber k vectors for passing to CLASS, CAMB or another Boltzmann code
     // Use the pyLogspace function to produce log-spaced values between 10^(-6) & 10^(0) Mpc^(-1) with the number of
     // k samples given in 'num_k_samples' read-in above.
@@ -446,7 +437,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
-        double dk = 0.01 * k_pivot_cppt;
+        double dk = 0.0001 * k_pivot_cppt;
         transport::basic_range<double> k_pivot_range{k_pivot_cppt-(3*dk), k_pivot_cppt+(3*dk), 6, transport::spacing::linear};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
@@ -539,6 +530,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             model->twopf_kmode(*t, tk2_piv.get(), pivot_batcher, 1);
         }
 
+        // Print out of samples for the pivot task
         for (int i = 0; i < pivot_twopf_samples.size(); ++i)
         {
             std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << pivot_twopf_samples[i] << " ; Tensor 2pf: " << tens_pivot_samples[i] << std::endl;
@@ -555,7 +547,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         if(twpf_pivot_dispersion.dispersion_check() == true)
         {
             throw time_varying_spectrum();
-        } else { std::cout << "spectrum is good!"; }
+        } else { std::cout << "spectrum is good!" << std::endl; }
 
         // Extract the A_s & a_t values: put the 7 A_s & A_t values into vectors for finding n_s and n_t with, then
         // take the values at index 3 (centre) to get the pivot scale.
@@ -647,6 +639,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
         }
 
+        // Print-out of threepf samples
         for (auto i = 0; i < eq_threepf_samples.size(); i++)
         {
             std::cout << "Threepf sample no: " << i << " - " << eq_threepf_samples[i] << " ; Redbsp: " << eq_redbsp_samples[i] << std::endl;
@@ -681,9 +674,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             model->threepf_kmode(*t, tk3s.get(), sq_thpf_batcher, 1);
         }
 
+        // Print-out of squeezed threepf data
         for (auto i = 0; i < sq_threepf_samples.size(); i++)
         {
-            std::cout << "Threepf sample no: " << i << " - " << sq_threepf_samples[i] << " ; Redbsp: " << sq_redbsp_samples[i] << std::endl;
+            std::cout << "Squeezed threepf sample no: " << i << " - " << sq_threepf_samples[i] << " ; Redbsp: " << sq_redbsp_samples[i] << std::endl;
         }
 
         // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
@@ -759,23 +753,23 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::thrpf_name, "B_squ", B_squ_piv );
     status = block->put_val( inflation::thrpf_name, "fNL_squ", fNL_squ_piv );
 
-    // CMB TASK
+    // CMB TASK for Boltzmann solver
     // Use put_val to write the temporary file with k, P_s(k) and P_t(k) information for CLASS
     status = block->put_val( inflation::spec_file, "spec_table", temp_path.string() );
 
     // FAILED SAMPLE INFO
     // Use put_val to write the information about any caught exceptions to the datablock.
-    status = block->put_val( inflation::fail_names, "no_end_inflation",   no_end_inflate);
-    status = block->put_val( inflation::fail_names, "negative_Hsq",       neg_Hsq);
-    status = block->put_val( inflation::fail_names, "integrate_nan",      integrate_nan);
-    status = block->put_val( inflation::fail_names, "zero_massless_time", zero_massless);
-    status = block->put_val( inflation::fail_names, "negative_epsilon",   neg_epsilon);
-    status = block->put_val( inflation::fail_names, "eps_geq_three",      large_epsilon);
-    status = block->put_val( inflation::fail_names, "negative_pot",       neg_V);
-    status = block->put_val( inflation::fail_names, "noFind_hor_exit",    failed_horizonExit);
-    status = block->put_val( inflation::fail_names, "ICs_before_start",   ics_before_start);
-    status = block->put_val( inflation::fail_names, "leq_60_efolds",      inflate60);
-    status = block->put_val( inflation::fail_names, "varying_Spec",       time_var_pow_spec);
+    status = block->put_val( inflation::fail_names, "no_end_inflation",   inflation::no_end_inflate);
+    status = block->put_val( inflation::fail_names, "negative_Hsq",       inflation::neg_Hsq);
+    status = block->put_val( inflation::fail_names, "integrate_nan",      inflation::integrate_nan);
+    status = block->put_val( inflation::fail_names, "zero_massless_time", inflation::zero_massless);
+    status = block->put_val( inflation::fail_names, "negative_epsilon",   inflation::neg_epsilon);
+    status = block->put_val( inflation::fail_names, "eps_geq_three",      inflation::large_epsilon);
+    status = block->put_val( inflation::fail_names, "negative_pot",       inflation::neg_V);
+    status = block->put_val( inflation::fail_names, "noFind_hor_exit",    inflation::failed_horizonExit);
+    status = block->put_val( inflation::fail_names, "ICs_before_start",   inflation::ics_before_start);
+    status = block->put_val( inflation::fail_names, "leq_60_efolds",      inflation::inflate60);
+    status = block->put_val( inflation::fail_names, "varying_Spec",       inflation::time_var_pow_spec);
 
     // return status variable declared at the start of the function
     return status;
