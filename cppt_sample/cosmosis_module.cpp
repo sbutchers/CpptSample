@@ -241,6 +241,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 {
     // Initialise DATABLOCK_STATUS to 0 - this is returned at end of function
     DATABLOCK_STATUS status = (DATABLOCK_STATUS)0;
+    // Add failure DATABLOCK_STATUS variable - returned if an integration fails.
+    const DATABLOCK_STATUS failure = (DATABLOCK_STATUS)1;
 
     //! Read in inflation parameters (Lagrangian and field initial values)
     block->get_val(inflation::paramsSection, "V_0",           inflation::V0);
@@ -576,71 +578,71 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         //! Integrate the tasks created for the equilateral 3-point function above
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
-        std::vector<double> eq_twopf_samples;
-        std::vector<double> eq_tens_samples;
-        std::vector<double> eq_threepf_samples;
-        std::vector<double> eq_redbsp_samples;
-        threepf_sampling_batcher eq_thpf_batcher(eq_twopf_samples, eq_tens_samples, eq_threepf_samples, eq_redbsp_samples,
-                lp, w, model.get(), tk3e.get());
-
-        // Integrate all of the threepf samples provided in the tk3e task
-        auto eq_db = tk3e->get_threepf_database();
-        for (auto t = eq_db.record_cbegin(); t!= eq_db.record_cend(); ++t)
-        {
-            model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
-        }
-
-        // Print-out of threepf samples
-        for (auto i = 0; i < eq_threepf_samples.size(); i++)
-        {
-            std::cout << "Threepf sample no: " << i << " - " << eq_threepf_samples[i] << " ; Redbsp: " << eq_redbsp_samples[i] << std::endl;
-        }
-
-        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
-        dispersion equi_B_disp_check(kt_pivot_range, times_sample, eq_threepf_samples);
-        dispersion equi_fNL_disp_check(kt_pivot_range, times_sample, eq_redbsp_samples);
-        if ( (equi_B_disp_check.dispersion_check() == true) or (equi_fNL_disp_check.dispersion_check() == true) ) {
-            throw time_varying_spectrum();
-        }
-
-        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
-        // do this by taking the value at the end of inflation
-        B_equi_piv = eq_threepf_samples.back();
-        fNL_equi_piv = eq_redbsp_samples.back();
+//        std::vector<double> eq_twopf_samples;
+//        std::vector<double> eq_tens_samples;
+//        std::vector<double> eq_threepf_samples;
+//        std::vector<double> eq_redbsp_samples;
+//        threepf_sampling_batcher eq_thpf_batcher(eq_twopf_samples, eq_tens_samples, eq_threepf_samples, eq_redbsp_samples,
+//                lp, w, model.get(), tk3e.get());
+//
+//        // Integrate all of the threepf samples provided in the tk3e task
+//        auto eq_db = tk3e->get_threepf_database();
+//        for (auto t = eq_db.record_cbegin(); t!= eq_db.record_cend(); ++t)
+//        {
+//            model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
+//        }
+//
+//        // Print-out of threepf samples
+//        for (auto i = 0; i < eq_threepf_samples.size(); i++)
+//        {
+//            std::cout << "Threepf sample no: " << i << " - " << eq_threepf_samples[i] << " ; Redbsp: " << eq_redbsp_samples[i] << std::endl;
+//        }
+//
+//        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
+//        dispersion equi_B_disp_check(kt_pivot_range, times_sample, eq_threepf_samples);
+//        dispersion equi_fNL_disp_check(kt_pivot_range, times_sample, eq_redbsp_samples);
+//        if ( (equi_B_disp_check.dispersion_check() == true) or (equi_fNL_disp_check.dispersion_check() == true) ) {
+//            throw time_varying_spectrum();
+//        }
+//
+//        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
+//        // do this by taking the value at the end of inflation
+//        B_equi_piv = eq_threepf_samples.back();
+//        fNL_equi_piv = eq_redbsp_samples.back();
 
         //! Integrate the task for the squeezed 3-point function above
-        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
-        // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
-        std::vector<double> sq_twopf_samples;
-        std::vector<double> sq_tens_samples;
-        std::vector<double> sq_threepf_samples;
-        std::vector<double> sq_redbsp_samples;
-        threepf_sampling_batcher sq_thpf_batcher(sq_twopf_samples, sq_tens_samples, sq_threepf_samples, sq_redbsp_samples,
-                                                 lp, w, model.get(), tk3s.get());
-
-        // Integrate all of the threepf samples provided in the tk3s task
-        auto sq_db = tk3s->get_threepf_database();
-        for (auto t = sq_db.record_cbegin(); t!= sq_db.record_cend(); ++t)
-        {
-            model->threepf_kmode(*t, tk3s.get(), sq_thpf_batcher, 1);
-        }
-
-        // Print-out of squeezed threepf data
-        for (auto i = 0; i < sq_threepf_samples.size(); i++)
-        {
-            std::cout << "Squeezed threepf sample no: " << i << " - " << sq_threepf_samples[i] << " ; Redbsp: " << sq_redbsp_samples[i] << std::endl;
-        }
-
-        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
-        dispersion sq_B_disp_check(kt_pivot_range, times_sample, sq_threepf_samples);
-        dispersion sq_fNL_disp_check(kt_pivot_range, times_sample, sq_redbsp_samples);
-        if ( (sq_B_disp_check.dispersion_check() == true) or (sq_fNL_disp_check.dispersion_check() == true) ) {
-            throw time_varying_spectrum();
-        }
-
-        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
-        B_squ_piv = sq_threepf_samples.back();
-        fNL_squ_piv = sq_redbsp_samples.back();
+//        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
+//        // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
+//        std::vector<double> sq_twopf_samples;
+//        std::vector<double> sq_tens_samples;
+//        std::vector<double> sq_threepf_samples;
+//        std::vector<double> sq_redbsp_samples;
+//        threepf_sampling_batcher sq_thpf_batcher(sq_twopf_samples, sq_tens_samples, sq_threepf_samples, sq_redbsp_samples,
+//                                                 lp, w, model.get(), tk3s.get());
+//
+//        // Integrate all of the threepf samples provided in the tk3s task
+//        auto sq_db = tk3s->get_threepf_database();
+//        for (auto t = sq_db.record_cbegin(); t!= sq_db.record_cend(); ++t)
+//        {
+//            model->threepf_kmode(*t, tk3s.get(), sq_thpf_batcher, 1);
+//        }
+//
+//        // Print-out of squeezed threepf data
+//        for (auto i = 0; i < sq_threepf_samples.size(); i++)
+//        {
+//            std::cout << "Squeezed threepf sample no: " << i << " - " << sq_threepf_samples[i] << " ; Redbsp: " << sq_redbsp_samples[i] << std::endl;
+//        }
+//
+//        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
+//        dispersion sq_B_disp_check(kt_pivot_range, times_sample, sq_threepf_samples);
+//        dispersion sq_fNL_disp_check(kt_pivot_range, times_sample, sq_redbsp_samples);
+//        if ( (sq_B_disp_check.dispersion_check() == true) or (sq_fNL_disp_check.dispersion_check() == true) ) {
+//            throw time_varying_spectrum();
+//        }
+//
+//        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
+//        B_squ_piv = sq_threepf_samples.back();
+//        fNL_squ_piv = sq_redbsp_samples.back();
 
     // Begin catches for different exceptions thrown from a failed integration sample.
     } catch (transport::end_of_inflation_not_found& xe) {
@@ -699,10 +701,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::twopf_name, "n_t", nt_pivot );
     status = block->put_val( inflation::twopf_name, "r", r_pivot );
     // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
-    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
-    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi_piv );
-    status = block->put_val( inflation::thrpf_name, "B_squ", B_squ_piv );
-    status = block->put_val( inflation::thrpf_name, "fNL_squ", fNL_squ_piv );
+//    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
+//    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi_piv );
+//    status = block->put_val( inflation::thrpf_name, "B_squ", B_squ_piv );
+//    status = block->put_val( inflation::thrpf_name, "fNL_squ", fNL_squ_piv );
 
     // CMB TASK for Boltzmann solver
     // Use put_val to write the temporary file with k, P_s(k) and P_t(k) information for CLASS
@@ -721,6 +723,15 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::fail_names, "ICs_before_start",   inflation::ics_before_start);
     status = block->put_val( inflation::fail_names, "leq_60_efolds",      inflation::inflate60);
     status = block->put_val( inflation::fail_names, "varying_Spec",       inflation::time_var_pow_spec);
+
+    // Sum all the failed sample ints and add that to status - if any = 1 then break out of pipeline for this sample.
+    int err_sum = inflation::no_end_inflate + inflation::neg_Hsq + inflation::integrate_nan + inflation::zero_massless +
+            inflation::neg_epsilon + inflation::large_epsilon + inflation::neg_V + inflation::failed_horizonExit +
+            inflation::ics_before_start + inflation::inflate60 + inflation::time_var_pow_spec;
+    if (err_sum >= 1)
+    {
+        return failure;
+    }
 
     // return status variable declared at the start of the function
     return status;
