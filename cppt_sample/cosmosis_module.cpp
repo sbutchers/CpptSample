@@ -370,7 +370,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         //! Construct the wave-numbers using a linearity relation.
         // Build CppT normalised wave-numbers by using the linear relation k_phys = gamma * k_cppt and k_cppt[Npre] == 1
         double gamma = spline_match_eq(N_pre);
-        std::cout << "Linearity const = " << exp(gamma) << std::endl;
+
         for (int i = 0; i < k_conventional.size(); ++i)
         {
             k_conventional[i] = Phys_waveno_sample[i] / exp(gamma);
@@ -484,10 +484,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         }
 
         // Print out of samples for the pivot task
-        for (int i = 0; i < pivot_twopf_samples.size(); ++i)
-        {
-            std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << pivot_twopf_samples[i] << " ; Tensor 2pf: " << tens_pivot_samples[i] << std::endl;
-        }
+//        for (int i = 0; i < pivot_twopf_samples.size(); ++i)
+//        {
+//            std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << pivot_twopf_samples[i] << " ; Tensor 2pf: " << tens_pivot_samples[i] << std::endl;
+//        }
 
         std::vector<double> k_pivots;
         for (int i = 0; i < k_pivot_range.size(); ++i)
