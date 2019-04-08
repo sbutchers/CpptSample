@@ -705,7 +705,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // PIVOT TASKS
     // Use put_val method to add second-order observables (k, A_s, A_t, n_s, n_t, r) at the pivot scale to the datablock
     status = block->put_val( inflation::twopf_name, "k_piv", k_pivot_cppt );
-    status = block->out_val( inflation::twopf_name, "N_piv", N_pivot_exit );
+    status = block->put_val( inflation::twopf_name, "N_piv", N_pivot_exit );
     status = block->put_val( inflation::twopf_name, "A_s", A_s_pivot );
     status = block->put_val( inflation::twopf_name, "A_t", A_t_pivot );
     status = block->put_val( inflation::twopf_name, "n_s", ns_pivot );
