@@ -289,6 +289,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // Pivot task observables
     // Twopf observables
     double k_pivot_cppt;
+    double N_pivot_exit;
     double A_s_pivot;
     double A_t_pivot;
     double r_pivot;
@@ -355,7 +356,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::spline1d<double> spline_match_eq (N_H, log_physical_k);
 
         // Use the bisection method to find the e-fold exit of k pivot.
-        double N_pivot_exit = compute_Nexit_for_physical_k(0.05, spline_match_eq, tol);
+        N_pivot_exit = compute_Nexit_for_physical_k(0.05, spline_match_eq, tol);
         std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
         std::cout << "k* from spline is:" << spline_match_eq(N_pivot_exit) << std::endl;
 
@@ -515,7 +516,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             {
                 A_s_pivot = A_s_spec[k];
                 A_t_pivot = A_t_spec[k];
-                r_pivot = ( A_s_pivot / A_t_pivot );
+                r_pivot = ( A_t_pivot / A_s_pivot );
             }
         }
 
@@ -680,36 +681,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         inflation::time_var_pow_spec = 1;
     } // end of try-catch block
 
-    //! Create a temporary path & file for passing wave-number information to the datablock for class
-    boost::filesystem::path temp_path = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
-    std::cout << "Temp. path = " << temp_path.string() << std::endl;
-    std::ofstream outf(temp_path.string(), std::ios_base::out | std::ios_base::trunc);
-    for (int i = 0; i < Phys_waveno_sample.size(); ++i) {
-        outf << Phys_waveno_sample[i] << "\t";
-        outf << A_s[i] << "\t";
-        outf << A_t[i] << "\n";
-    }
-    outf.close();
-
-    //! Return the calculated observables to the datablock
-    // PIVOT TASKS
-    // Use put_val method to add second-order observables (k, A_s, A_t, n_s, n_t, r) at the pivot scale to the datablock
-    status = block->put_val( inflation::twopf_name, "k_piv", k_pivot_cppt );
-    status = block->put_val( inflation::twopf_name, "A_s", A_s_pivot );
-    status = block->put_val( inflation::twopf_name, "A_t", A_t_pivot );
-    status = block->put_val( inflation::twopf_name, "n_s", ns_pivot );
-    status = block->put_val( inflation::twopf_name, "n_t", nt_pivot );
-    status = block->put_val( inflation::twopf_name, "r", r_pivot );
-    // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
-//    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
-//    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi_piv );
-//    status = block->put_val( inflation::thrpf_name, "B_squ", B_squ_piv );
-//    status = block->put_val( inflation::thrpf_name, "fNL_squ", fNL_squ_piv );
-
-    // CMB TASK for Boltzmann solver
-    // Use put_val to write the temporary file with k, P_s(k) and P_t(k) information for CLASS
-    status = block->put_val( inflation::spec_file, "spec_table", temp_path.string() );
-
     // FAILED SAMPLE INFO
     // Use put_val to write the information about any caught exceptions to the datablock.
     status = block->put_val( inflation::fail_names, "no_end_inflation",   inflation::no_end_inflate);
@@ -726,12 +697,43 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
     // Sum all the failed sample ints and add that to status - if any = 1 then break out of pipeline for this sample.
     int err_sum = inflation::no_end_inflate + inflation::neg_Hsq + inflation::integrate_nan + inflation::zero_massless +
-            inflation::neg_epsilon + inflation::large_epsilon + inflation::neg_V + inflation::failed_horizonExit +
-            inflation::ics_before_start + inflation::inflate60 + inflation::time_var_pow_spec;
+                  inflation::neg_epsilon + inflation::large_epsilon + inflation::neg_V + inflation::failed_horizonExit +
+                  inflation::ics_before_start + inflation::inflate60 + inflation::time_var_pow_spec;
     if (err_sum >= 1)
     {
         return failure;
     }
+
+    //! Create a temporary path & file for passing wave-number information to the datablock for class
+    boost::filesystem::path temp_path = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
+    std::cout << "Temp. path = " << temp_path.string() << std::endl;
+    std::ofstream outf(temp_path.string(), std::ios_base::out | std::ios_base::trunc);
+    for (int i = 0; i < Phys_waveno_sample.size(); ++i) {
+        outf << Phys_waveno_sample[i] << "\t";
+        outf << A_s[i] << "\t";
+        outf << A_t[i] << "\n";
+    }
+    outf.close();
+
+    //! Return the calculated observables to the datablock
+    // PIVOT TASKS
+    // Use put_val method to add second-order observables (k, A_s, A_t, n_s, n_t, r) at the pivot scale to the datablock
+    status = block->put_val( inflation::twopf_name, "k_piv", k_pivot_cppt );
+    status = block->put_val( inflation::twopf_name, "N_piv", N_pivot_exit );
+    status = block->put_val( inflation::twopf_name, "A_s", A_s_pivot );
+    status = block->put_val( inflation::twopf_name, "A_t", A_t_pivot );
+    status = block->put_val( inflation::twopf_name, "n_s", ns_pivot );
+    status = block->put_val( inflation::twopf_name, "n_t", nt_pivot );
+    status = block->put_val( inflation::twopf_name, "r", r_pivot );
+    // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
+//    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
+//    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi_piv );
+//    status = block->put_val( inflation::thrpf_name, "B_squ", B_squ_piv );
+//    status = block->put_val( inflation::thrpf_name, "fNL_squ", fNL_squ_piv );
+
+    // CMB TASK for Boltzmann solver
+    // Use put_val to write the temporary file with k, P_s(k) and P_t(k) information for CLASS
+    status = block->put_val( inflation::spec_file, "spec_table", temp_path.string() );
 
     // return status variable declared at the start of the function
     return status;
