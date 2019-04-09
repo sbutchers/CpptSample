@@ -1,0 +1,3 @@
+# Hashes of file build rules.
+488b83eac5123fd8d5f115d8aa8deedc CMakeFiles/Generator
+1a2ece964ce6351fef9e03b3a44b5270 quartic_core.h
