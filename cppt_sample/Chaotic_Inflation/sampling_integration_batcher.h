@@ -343,7 +343,7 @@ void twopf_sampling_batcher::push_twopf(unsigned int time_serial, unsigned int k
 void twopf_sampling_batcher::push_tensor_twopf(unsigned int time_serial, unsigned int k_serial,
                                                unsigned int source_serial, const std::vector<double> &tensor_values)
 {
-  double tensor_twopf = tensor_values[0];
+  double tensor_twopf = 4.0 * tensor_values[0]; // 4.0 appears because of tensor polarisations
   this->tensor_twopf_data.emplace_back(tensor_twopf);
 }
 
@@ -394,7 +394,7 @@ void threepf_sampling_batcher::push_tensor_twopf(unsigned int time_serial, unsig
                                                  unsigned int source_serial,
                                                  const std::vector<double> &tensor_values)
 {
-  double tensor_twopf = tensor_values[0];
+  double tensor_twopf = 4.0 * tensor_values[0]; // 4.0 appears because of tensor polarisations
   this->tensor_twopf_data.emplace_back(tensor_twopf);
 }
 
