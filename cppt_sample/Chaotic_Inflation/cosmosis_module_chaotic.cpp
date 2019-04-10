@@ -291,7 +291,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // Wavenumber k vectors for passing to CLASS, CAMB or another Boltzmann code
     // Use the pyLogspace function to produce log-spaced values between 10^(-6) & 10^(0) Mpc^(-1) with the number of
     // k samples given in 'num_k_samples' read-in above.
-    std::vector<double> Phys_waveno_sample = pyLogspace(-6.0, 1.7, inflation::num_k_samples, 10);
+    std::vector<double> Phys_waveno_sample = pyLogspace(-6.0, 0.7, inflation::num_k_samples, 10);
     std::vector<double> k_conventional(Phys_waveno_sample.size());
     // Vectors for storing A_s and A_t before writing them to a temporary file
     std::vector<double> A_s;
@@ -505,6 +505,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
                 r_pivot = ( A_t_pivot / A_s_pivot );
             }
         }
+
+        std::cout << "r_ pivot is: " << r_pivot << std::endl;
+        std::cout << "A_s (pivot) is: " << A_s_pivot << std::endl;
+        std::cout << "A_t (pivot) is: " << A_t_pivot << std::endl;
 
         // Use the function defined above to find dA/dk and compute n_s and n_t from those
         ns_pivot = spec_derivative(k_pivot_cppt, dk, A_s_spec) + 1.0;
