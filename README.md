@@ -1,1 +1,1 @@
-# cppt_sample
+# CpptSample
