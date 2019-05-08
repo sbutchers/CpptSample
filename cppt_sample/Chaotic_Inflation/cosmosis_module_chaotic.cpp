@@ -36,7 +36,7 @@ namespace inflation {
     int num_k_samples;
 
     // User-chosen k_pivot scale [Mpc^-1]
-    int k_pivot_choice;
+    double k_pivot_choice;
 
     // function to create a transport::parameters<double> object called params
     std::vector<double> parameter_creator(double m) {
@@ -88,7 +88,8 @@ double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>&
     double Nexit;
     Nexit = transport::task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
     matching_eq.set_offset(0.0);
-    return (Nend - Nexit);
+    Nexit = Nend - Nexit;
+    return Nexit;
 }
 
 // Set-up a function to create a log-spaced std::vector similar to numpy.logspace
