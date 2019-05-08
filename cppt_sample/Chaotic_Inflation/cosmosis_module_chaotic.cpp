@@ -35,6 +35,9 @@ namespace inflation {
     // no. of k samples for CLASS read in from ini file
     int num_k_samples;
 
+    // User-chosen k_pivot scale [Mpc^-1]
+    int k_pivot_choice;
+
     // function to create a transport::parameters<double> object called params
     std::vector<double> parameter_creator(double m) {
         std::vector<double> output{m};
@@ -74,8 +77,10 @@ struct ToleranceCondition {
     }
 };
 
-// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of phys_k
-double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq, ToleranceCondition tol)
+// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of 
+// phys_k as no. of e-folds before end of inflation
+double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq, 
+                                    ToleranceCondition tol, double Nend)
 {
     matching_eq.set_offset(std::log(Phys_k));
     std::string task_name = "find N_exit of physical wave-number";
@@ -83,7 +88,7 @@ double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>&
     double Nexit;
     Nexit = transport::task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
     matching_eq.set_offset(0.0);
-    return Nexit;
+    return (Nend - Nexit);
 }
 
 // Set-up a function to create a log-spaced std::vector similar to numpy.logspace
@@ -213,7 +218,7 @@ protected:
 };
 
 // Create instances of the model and separate integration tasks for the two-point function -> a sampling one and a task
-// at k_pivot=0.05Mpc^(-1), and three-point function task with k=k_pivot for the equilateral and squeezed configurations
+// at k_pivot, and three-point function task with k=k_pivot for the equilateral and squeezed configurations
 static transport::local_environment env;
 static transport::argument_cache arg;
 static std::unique_ptr< transport::chaotic_mpi<double, std::vector<double>> > model;
@@ -230,6 +235,7 @@ void * setup(cosmosis::DataBlock * options)
     // passed via the "options" argument
     options->get_val(inflation::sectionName, "M_P", inflation::M_P); // TODO: get rid of this option?
     options->get_val(inflation::sectionName, "k_samples", inflation::num_k_samples);
+    options->get_val(inflation::sectionName, "k_pivot", inflation::k_pivot_choice);
 
     // Record any configuration information required
     model = std::make_unique< transport::chaotic_mpi<double, std::vector<double>> > (env, arg);
@@ -326,7 +332,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Set-up the different parameters needed for the matching equation
         double Hend = 0.5 * log_H.back(); // value of H at the end of inflation
         double norm_const = std::log(243.5363 * pow(3.0, 0.25)); // dimnless matching eq has const = (3^(1/4)*M_P)/1E16 GeV
-        double k_pivot = std::log(0.05); // pivot scale defined as 0.05 Mpc^-1 here
+        double k_pivot = std::log(0.05); // pivot scale defined as 0.05 Mpc^-1 in the matching eq (DO NOT CHANGE!)
         double e_fold_const = 55.75; // constant defined in the matching eq.
         double constants = e_fold_const + k_pivot + norm_const - Hend; // wrap up constants in a single term
 
@@ -342,9 +348,9 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Set-up a spline to use with the bisection method defined later.
         transport::spline1d<double> spline_match_eq (N_H, log_physical_k);
 
-        // Use the bisection method to find the e-fold exit of k pivot.
-        N_pivot_exit = compute_Nexit_for_physical_k(0.05, spline_match_eq, tol);
-        // std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
+        // Use the bisection method to find the e-fold exit of k pivot_choice.
+        N_pivot_exit = compute_Nexit_for_physical_k(inflation::k_pivot_choice, spline_match_eq, tol, nEND);
+        std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
         // std::cout << "k* from spline is:" << spline_match_eq(N_pivot_exit) << std::endl;
 
         // Construct a vector of exit times (= no. of e-folds BEFORE the end of inflation!)
@@ -365,7 +371,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             //std::cout << Phys_k_exits[i] << "\t" << k_conventional[i] << std::endl;
         }
 
-        // Put these into an aggregate range one-by-one
+        // Put these into a transport::aggregate range one-by-one
         transport::aggregate_range<double> ks;
         for (int i = 0; i < k_conventional.size(); ++i)
         {
@@ -373,12 +379,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             ks += k_temp;
         }
 
-        // Construct a CppT normalised wave-number for the pivot scale (=0.05Mpc^-1) using the linearity constant
-        k_pivot_cppt = 0.05 / std::exp(gamma);
+        // Construct a CppT normalised wave-number for the chosen pivot scale using the linearity constant
+        k_pivot_cppt = inflation::k_pivot_choice / std::exp(gamma);
 
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
-        double dk = 0.0001 * k_pivot_cppt;
+        double dk = 0.001 * k_pivot_cppt;
         transport::basic_range<double> k_pivot_range{k_pivot_cppt-(3*dk), k_pivot_cppt+(3*dk), 6, transport::spacing::linear};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
@@ -514,14 +520,14 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // std::cout << "A_t (pivot) is: " << A_t_pivot << std::endl;
 
         // Use the function defined above to find dA/dk and compute n_s and n_t from those
-        ns_pivot = spec_derivative(k_pivot_cppt, dk, A_s_spec) + 1.0;
-        nt_pivot = spec_derivative(k_pivot_cppt, dk, A_t_spec);
+        double ns_pivot_function = spec_derivative(k_pivot_cppt, dk, A_s_spec) + 1.0;
+        double nt_pivot_function = spec_derivative(k_pivot_cppt, dk, A_t_spec);
 
         transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
-        double ns_pivot_spline = ns_piv_spline.eval_diff(k_pivot_cppt) * (k_pivot_cppt / A_s_pivot) + 1.0;
+        ns_pivot = ns_piv_spline.eval_diff(k_pivot_cppt) * (k_pivot_cppt / A_s_pivot) + 1.0;
 
         transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
-        double nt_pivot_spline = nt_piv_spline.eval_diff(k_pivot_cppt) * (k_pivot_cppt / A_t_pivot);
+        nt_pivot = nt_piv_spline.eval_diff(k_pivot_cppt) * (k_pivot_cppt / A_t_pivot);
 
         // std::cout << "ns: " << ns_pivot << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
         // std::cout << "nt: " << nt_pivot << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
