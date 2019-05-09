@@ -351,7 +351,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the bisection method to find the e-fold exit of k pivot_choice.
         N_pivot_exit = compute_Nexit_for_physical_k(inflation::k_pivot_choice, spline_match_eq, tol, nEND);
-        std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
+        // std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
         // std::cout << "k* from spline is:" << spline_match_eq(N_pivot_exit) << std::endl;
 
         // Construct a vector of exit times (= no. of e-folds BEFORE the end of inflation!)
@@ -385,7 +385,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
-        double dk = 0.001 * k_pivot_cppt;
+        double dk = 1E-2 * k_pivot_cppt;
         transport::basic_range<double> k_pivot_range{k_pivot_cppt-(3*dk), k_pivot_cppt+(3*dk), 6, transport::spacing::linear};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
@@ -489,7 +489,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::vector<double> k_pivots;
         for (int i = 0; i < k_pivot_range.size(); ++i)
         {
-            k_pivots.push_back(k_pivot_range[i]);
+            k_pivots.push_back(k_pivot_range[i] * std::exp(gamma) );
         }
 
         // Perform a dispersion check on the spectrum values - throw time_varying_spectrum if they're varying.
@@ -521,17 +521,17 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // std::cout << "A_t (pivot) is: " << A_t_pivot << std::endl;
 
         // Use the function defined above to find dA/dk and compute n_s and n_t from those
-        double ns_pivot_function = spec_derivative(k_pivot_cppt, dk, A_s_spec) + 1.0;
-        double nt_pivot_function = spec_derivative(k_pivot_cppt, dk, A_t_spec);
+        double dk_phys = dk*std::exp(gamma);
+        double ns_pivot_function = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
+        double nt_pivot_function = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
 
         transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
-        ns_pivot = ns_piv_spline.eval_diff(k_pivot_cppt) * (k_pivot_cppt / A_s_pivot) + 1.0;
+        ns_pivot = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
 
         transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
-        nt_pivot = nt_piv_spline.eval_diff(k_pivot_cppt) * (k_pivot_cppt / A_t_pivot);
+        nt_pivot = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
 
-        // std::cout << "ns: " << ns_pivot << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
-        // std::cout << "nt: " << nt_pivot << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
+        std::cout << "ns: " << ns_pivot_function << "\t" << "ns(spline): " << ns_pivot << "\t nt: " << nt_pivot_function << "\t" << "nt(spline): " << nt_pivot << std::endl;
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
