@@ -196,13 +196,13 @@ public:
         std::vector<double> dispersion(k_size);
         for (int i = 0; i < mean.size(); ++i)
         {
-            dispersion[i] = std_dev[i]/mean[i];
+            dispersion[i] = (1 + 1.0 / (4.0 * time_size)) * std_dev[i]/mean[i]; // unbiased estimator (1 + 1/4n)
         }
 
-        // return true if the dispersion is >10% for any of the k samples
+        // return true if the dispersion is >1% for any of the k samples
         for (auto i: dispersion)
         {
-            if (i > 0.1)
+            if (i > 0.01)
             {
                 return true;
             }
