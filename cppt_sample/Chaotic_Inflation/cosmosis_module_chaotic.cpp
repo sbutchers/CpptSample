@@ -385,7 +385,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
-        double dk = 1E-2 * k_pivot_cppt;
+        double dk = 1E-3 * k_pivot_cppt;
         transport::basic_range<double> k_pivot_range{k_pivot_cppt-(3*dk), k_pivot_cppt+(3*dk), 6, transport::spacing::linear};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
@@ -522,16 +522,16 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the function defined above to find dA/dk and compute n_s and n_t from those
         double dk_phys = dk*std::exp(gamma);
-        double ns_pivot_function = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
-        double nt_pivot_function = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
+        double ns_pivot = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
+        double nt_pivot = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
 
         transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
-        ns_pivot = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
+        ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
 
         transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
-        nt_pivot = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
+        nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
 
-        std::cout << "ns: " << ns_pivot_function << "\t" << "ns(spline): " << ns_pivot << "\t nt: " << nt_pivot_function << "\t" << "nt(spline): " << nt_pivot << std::endl;
+        // std::cout << "ns: " << ns_pivot << "\t" << "ns(spline): " << ns_pivot_spline << "\t nt: " << nt_pivot << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
