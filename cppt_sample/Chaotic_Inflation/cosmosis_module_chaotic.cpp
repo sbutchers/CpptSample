@@ -266,8 +266,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // std::cout << "phi_init = " << inflation::phi_init << std::endl;
     // std::cout << "phi_dot_init = " << inflation::phiDot_init << std::endl;
 
-    std::ofstream spec_der_file("./SpecDeriv.txt", std::ios_base::app);
-
     // Set-up initial time for integration (N_init) and N_pre which is used to set the amount of sub-horizon evolution
     // to integrate before the chosen mode crosses the horizon.
     const double N_init        = 0.0;
@@ -498,8 +496,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             k_pivots.push_back(k_pivot_range[i] * std::exp(gamma) );
         }
 
-        for (auto &e : k_pivots) spec_der_file << e << "\n";
-
         // Perform a dispersion check on the spectrum values - throw time_varying_spectrum if they're varying.
         dispersion twpf_pivot_dispersion(k_pivot_range, times_sample, pivot_twopf_samples);
         if(twpf_pivot_dispersion.dispersion_check() == true)
@@ -524,8 +520,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             }
         }
 
-        for (auto &e : A_s_spec) spec_der_file << e << "\n";
-
         // std::cout << "r_pivot is: " << r_pivot << std::endl;
         // std::cout << "A_s (pivot) is: " << A_s_pivot << std::endl;
         // std::cout << "A_t (pivot) is: " << A_t_pivot << std::endl;
@@ -542,7 +536,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
 
         // std::cout << "ns: " << ns_pivot << "\t" << "ns(spline): " << ns_pivot_spline << "\t nt: " << nt_pivot << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
-        spec_der_file << ns_pivot << "\n";
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
