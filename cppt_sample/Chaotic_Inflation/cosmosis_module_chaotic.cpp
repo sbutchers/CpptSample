@@ -17,12 +17,11 @@
 #include "boost/filesystem.hpp"
 #include <boost/range/adaptors.hpp>
 #include <boost/math/tools/roots.hpp>
+#include <boost/numeric/ublas/matrix.hpp>
+#include <boost/numeric/ublas/lu.hpp>
+#include <boost/assert.hpp>
 // Include batcher file for integration
 #include "sampling_integration_batcher.h"
-
-#include <fstream>
-#include <iterator>
-#include <string>
 
 namespace inflation {
     // Some names for different sections in the cosmosis datablock
@@ -118,6 +117,92 @@ std::vector<double> pyLogspace (double start, double stop, int num, double base 
     log_vector.reserve(num+1);
     std::generate_n(std::back_inserter(log_vector), num+1, Logspace(logStart, logBase));
     return log_vector;
+}
+
+// Set-up a function that applies ln to every element of the vector (useful for dlnA/dlnk derivatives)
+std::vector<double> vector_logger( std::vector<double>& no_log_vec)
+{
+    size_t vecSize = no_log_vec.size();
+    std::vector<double> logvec(vecSize);
+    for (size_t i = 0; i < vecSize; i++)
+    {
+        logvec[i] = std::log(no_log_vec[i]);
+    }
+
+    return logvec;
+}
+
+// Set-up a function that fits an nDegree polynomial to equal-sized vectors oX and oY
+std::vector<double> polyfit( const std::vector<double>& oX,
+                             const std::vector<double>& oY, int nDegree )
+{
+    using namespace boost::numeric::ublas;
+
+    if ( oX.size() != oY.size() )
+        throw std::invalid_argument( "X and Y vector sizes do not match" );
+
+    // more intuative this way
+    nDegree++;
+
+    size_t nCount =  oX.size();
+    matrix<double> oXMatrix( nCount, nDegree );
+    matrix<double> oYMatrix( nCount, 1 );
+
+    // copy y matrix
+    for ( size_t i = 0; i < nCount; i++ )
+    {
+        oYMatrix(i, 0) = oY[i];
+    }
+
+    // create the X matrix
+    for ( size_t nRow = 0; nRow < nCount; nRow++ )
+    {
+        double nVal = 1.0f;
+        for ( int nCol = 0; nCol < nDegree; nCol++ )
+        {
+            oXMatrix(nRow, nCol) = nVal;
+            nVal *= oX[nRow];
+        }
+    }
+
+    // transpose X matrix
+    matrix<double> oXtMatrix( trans(oXMatrix) );
+    // multiply transposed X matrix with X matrix
+    matrix<double> oXtXMatrix( prec_prod(oXtMatrix, oXMatrix) );
+    // multiply transposed X matrix with Y matrix
+    matrix<double> oXtYMatrix( prec_prod(oXtMatrix, oYMatrix) );
+
+    // lu decomposition
+    permutation_matrix<int> pert(oXtXMatrix.size1());
+    const std::size_t singular = lu_factorize(oXtXMatrix, pert);
+    // must be singular
+    BOOST_ASSERT( singular == 0 );
+
+    // backsubstitution
+    lu_substitute(oXtXMatrix, pert, oXtYMatrix);
+
+    // copy the result to coeff
+    return std::vector<double>( oXtYMatrix.data().begin(), oXtYMatrix.data().end() );
+}
+
+// Set-up a function that computes the spectral index derivatives using the polyfit and vector_logger functions
+// This takes in a k_value for the desired wavenumber to evaluate the derivative, a vector of wavenumbers k, a
+// vector of spectrum values A, a boolean set to true for scalar spectral index and an optional argument for nDegree(=2)
+double spec_index_deriv (double k_value, std::vector<double>& k, std::vector<double>& A,
+                         bool scalar, int nDegree = 2)
+{
+    std::vector<double> coeffs = polyfit(vector_logger(k), vector_logger(A), nDegree);
+    double spectral_index = 0.0;
+    for (int i = 1; i < coeffs.size(); i++)
+    {
+        double power = i - 1.0;
+        spectral_index += i * pow(std::log(k_value), power) * coeffs[i];
+    }
+    if (scalar == true)
+    {
+        spectral_index++;
+    }
+    return spectral_index;
 }
 
 // Set-up a function that returns the k-derivative of A_s or A_t as a double.
@@ -525,9 +610,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // std::cout << "A_t (pivot) is: " << A_t_pivot << std::endl;
 
         // Use the function defined above to find dA/dk and compute n_s and n_t from those
+        ns_pivot = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, true);
+        nt_pivot = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_t_spec, false);
+
         double dk_phys = dk*std::exp(gamma);
-        ns_pivot = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
-        nt_pivot = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
+        double ns_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
+        double nt_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
 
         transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
         double ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
@@ -535,7 +623,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
         double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
 
-        // std::cout << "ns: " << ns_pivot << "\t" << "ns(spline): " << ns_pivot_spline << "\t nt: " << nt_pivot << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
+        std::cout << "ns: " << ns_pivot << "\t" << "ns(central): " << ns_pivot_central << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
+        std::cout << "nt: " << nt_pivot << "\t" << "nt(central): " << nt_pivot_central << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
