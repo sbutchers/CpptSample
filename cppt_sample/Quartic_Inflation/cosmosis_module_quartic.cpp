@@ -206,25 +206,25 @@ double spec_index_deriv (double k_value, std::vector<double>& k, std::vector<dou
 }
 
 // Set-up a function that returns the k-derivative of A_s or A_t as a double.
-double spec_derivative(const double k, const double dk, std::vector<double> Amplitude)
-{
-    // compute d/dk[Amplitude] using a three-point central difference of O(dk^6).
-    const double dk1 = dk;
-    const double dk2 = dk1*2.0;
-    const double dk3 = dk1*3.0;
-
-    const double Amp1 = (Amplitude[4] - Amplitude[2]) / 2;
-    const double Amp2 = (Amplitude[5] - Amplitude[1]) / 4;
-    const double Amp3 = (Amplitude[6] - Amplitude[0]) / 6;
-
-    const double fifteen_Amp1 = 15 * Amp1;
-    const double six_Amp2 = 6 * Amp2;
-    const double ten_dk1 = 10 * dk1;
-
-    const double dAdk = ((fifteen_Amp1 - six_Amp2) + Amp3) / ten_dk1;
-    const double k_div_A = k / Amplitude[3];
-    return (dAdk * k_div_A);
-}
+//double spec_derivative(const double k, const double dk, std::vector<double> Amplitude)
+//{
+//    // compute d/dk[Amplitude] using a three-point central difference of O(dk^6).
+//    const double dk1 = dk;
+//    const double dk2 = dk1*2.0;
+//    const double dk3 = dk1*3.0;
+//
+//    const double Amp1 = (Amplitude[4] - Amplitude[2]) / 2;
+//    const double Amp2 = (Amplitude[5] - Amplitude[1]) / 4;
+//    const double Amp3 = (Amplitude[6] - Amplitude[0]) / 6;
+//
+//    const double fifteen_Amp1 = 15 * Amp1;
+//    const double six_Amp2 = 6 * Amp2;
+//    const double ten_dk1 = 10 * dk1;
+//
+//    const double dAdk = ((fifteen_Amp1 - six_Amp2) + Amp3) / ten_dk1;
+//    const double k_div_A = k / Amplitude[3];
+//    return (dAdk * k_div_A);
+//}
 
 // Set-up a dispersion class that has a function which checks the power spectrum values contained in samples with k and
 // t samples stored in k_size and time_size for strongly-varying spectrum values. This is when the std deviation of
@@ -377,6 +377,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     double r_pivot;
     double ns_pivot;
     double nt_pivot;
+    double ns_pivot_linear;
+    double nt_pivot_linear;
+    double ns_pivot_spline;
+    double nt_pivot_spline;
     std::vector<double> r;
     // Threepf observables (at pivot scale)
     double B_equi_piv;
@@ -401,7 +405,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     try {
         //! compute nEND-> throw exception struct defined above if we have nEND < 60.0 e-folds
         double nEND = model->compute_end_of_inflation(&bkg, Nendhigh);
-        // std::cout << "Inflation lasts for: " << nEND << " e-folds." << std::endl;
+        std::cout << "Inflation lasts for: " << nEND << " e-folds." << std::endl;
         if (nEND < 60.0)
         {
             throw le60inflation();
@@ -475,7 +479,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
         double dk = 1E-3 * k_pivot_cppt;
-        transport::basic_range<double> k_pivot_range{k_pivot_cppt-(3*dk), k_pivot_cppt+(3*dk), 6, transport::spacing::linear};
+        transport::basic_range<double> k_pivot_range{k_pivot_cppt-(7.0*dk), k_pivot_cppt+(7.0*dk), 14, transport::spacing::linear};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
         transport::basic_range<double> kt_pivot_range{3.0*k_pivot_cppt, 3.0*k_pivot_cppt, 1, transport::spacing::linear};
@@ -588,8 +592,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             throw time_varying_spectrum();
         }
 
-        // Extract the A_s & a_t values: put the 7 A_s & A_t values into vectors for finding n_s and n_t with, then
-        // take the values at index 3 (centre) to get the pivot scale.
+        // Extract the A_s & a_t values: put the 15 A_s & A_t values into vectors for finding n_s and n_t with, then
+        // take the values at index 7 (centre) to get the pivot scale.
         std::vector<double> A_s_spec(k_pivot_range.size());
         std::vector<double> A_t_spec(k_pivot_range.size());
         for (int k = 0; k < k_pivot_range.size(); ++k)
@@ -597,7 +601,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             int index = (times_sample.size() * k) + (times_sample.size() - 1);
             A_s_spec[k] = pivot_twopf_samples[index];
             A_t_spec[k] = tens_pivot_samples[index];
-            if (k==3) 
+            if (k==7)
             {
                 A_s_pivot = A_s_spec[k];
                 A_t_pivot = A_t_spec[k];
@@ -613,9 +617,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         ns_pivot = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, true);
         nt_pivot = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_t_spec, false);
 
-        double dk_phys = dk*std::exp(gamma);
-        double ns_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
-        double nt_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
+        ns_pivot_linear = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, true, 1);
+        nt_pivot_linear = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, false, 1);
+
+//        double dk_phys = dk*std::exp(gamma);
+//        double ns_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
+//        double nt_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
 
         transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
         double ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
@@ -623,8 +630,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
         double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
 
-        std::cout << "ns: " << ns_pivot << "\t" << "ns(central): " << ns_pivot_central << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
-        std::cout << "nt: " << nt_pivot << "\t" << "nt(central): " << nt_pivot_central << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
+        std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
+        std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
@@ -817,6 +824,11 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::twopf_name, "A_t", A_t_pivot );
     status = block->put_val( inflation::twopf_name, "n_s", ns_pivot );
     status = block->put_val( inflation::twopf_name, "n_t", nt_pivot );
+    status = block->put_val( inflation::twopf_name, "n_s_lin", ns_pivot_linear );
+    status = block->put_val( inflation::twopf_name, "n_t_lin", nt_pivot_linear );
+    status = block->put_val( inflation::twopf_name, "n_s_spl", ns_pivot_spline );
+    status = block->put_val( inflation::twopf_name, "n_t_spl", nt_pivot_spline );
+
     status = block->put_val( inflation::twopf_name, "r", r_pivot );
     // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
