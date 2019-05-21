@@ -1,0 +1,92 @@
+model "attractor_model"
+  { name = "Attractor model";
+    lagrangian = nontrivial_metric;
+
+    description = "Multi-field attractor model by Achcarro et al";
+    license = "CC BY";
+    revision = 1;
+
+    references = [ "arXiv:1711.09478v2"];
+    urls = ["http://transportmethod.com"];
+  };
+
+metadata
+  { require_version = 201801;
+  };
+
+author "David Seery"
+ { email     = "D.Seery@sussex.ac.uk";
+   institute = "University of Sussex";
+ };
+
+author "Sean Butchers"
+ { email     = "smlb20@sussex.ac.uk";
+   institute = "University of Sussex";
+ };
+
+% specify which class template should be used with this model
+templates
+ { core           = "nontrivial_metric_core";
+   implementation = "nontrivial_metric_mpi";
+ };
+
+% fix properties of the steppers
+background
+ { abserr   = 1E-12;
+   relerr   = 1E-12;
+   stepsize = 1E-10;
+   stepper  = "runge_kutta_dopri5";
+ };
+
+perturbations
+ { abserr   = 1E-14;
+   relerr   = 1E-14;
+   stepsize = 1E-15;
+   stepper  = "runge_kutta_dopri5";
+ };
+
+% set up the fields
+field phi
+ { latex = "\phi";
+ };
+
+field theta
+ { latex = "\theta";
+ };
+
+% set up the parameters
+parameter Vzero
+  { latex = "V_0";
+  };
+
+parameter A
+  { latex = "A";
+  };
+
+% set up the potential expressions
+subexpr V_tanh
+  { latex = "V_0 \tanh^2 (\phi / \sqrt{2})";
+    value = Vzero * (tanh(phi / sqrt(2)) )^2;
+  };
+
+ subexpr V_other
+  { latex = "1 + 2A \cos(4 \theta) \tanh^{2} ( \phi / \sqrt{2})";
+    value = 1 + 2*A*cos(4*theta) * (tanh(phi/sqrt(2)))^2;
+  };
+
+% set up the field metric expressions
+subexpr G11
+  { latex = "G_{11}";
+    value = (1/2) * (sinh(sqrt(2) * phi))^2;
+  };
+
+
+% Give the potential and metric
+potential = V_tanh * V_other;
+
+metric =
+  [
+      phi, phi = 1;
+      phi, theta = 0;
+      theta, theta = G11;
+  ];

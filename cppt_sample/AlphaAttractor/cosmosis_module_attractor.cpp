@@ -3,7 +3,7 @@
 #include <cosmosis/datablock/datablock.hh>
 #include <cosmosis/datablock/section_names.h>
 // CppTransport includes
-#include "chaotic_mpi.h"
+#include "attractor_model_mpi.h"
 #include "transport-runtime/utilities/spline1d.h"
 #include "transport-runtime/tasks/integration_detail/abstract.h"
 #include "transport-runtime/models/advisory_classes.h"
@@ -33,7 +33,7 @@ namespace inflation {
     const char *fail_names = "failed_samples";
 
     // These are the Lagrangian parameters for our model (including field initial conditions).
-    double M_P, m, phi_init, phiDot_init;
+    double M_P, Vzero, A, phi_init, phiDot_init, theta_init, thetaDot_init;
 
     // no. of k samples for CLASS read in from ini file
     int num_k_samples;
@@ -42,20 +42,20 @@ namespace inflation {
     double k_pivot_choice;
 
     // function to create a transport::parameters<double> object called params
-    std::vector<double> parameter_creator(double m) {
-        std::vector<double> output{m};
-        return output; 
+    std::vector<double> parameter_creator(double Vzero, double A) {
+        std::vector<double> output{Vzero, A};
+        return output;
     }
 
     // function to create a std::vector<double> vector containing initial conditons
-    std::vector<double> init_cond_creator(double phi_init, double phiDot_init) {
-        std::vector<double> output{phi_init, phiDot_init};
+    std::vector<double> init_cond_creator(double phi_init, double theta_init, double phiDot_init, double thetaDot_init) {
+        std::vector<double> output{phi_init, theta_init, phiDot_init, thetaDot_init};
         return output;
     }
 
     // ints for capturing failed samples
-    int no_end_inflate = 0, neg_Hsq = 0, integrate_nan = 0, zero_massless = 0, neg_epsilon = 0, 
-        large_epsilon = 0, neg_V = 0, failed_horizonExit = 0, ics_before_start = 0, inflate60 = 0, 
+    int no_end_inflate = 0, neg_Hsq = 0, integrate_nan = 0, zero_massless = 0, neg_epsilon = 0,
+        large_epsilon = 0, neg_V = 0, failed_horizonExit = 0, ics_before_start = 0, inflate60 = 0,
         time_var_pow_spec = 0;
 }
 
@@ -80,9 +80,9 @@ struct ToleranceCondition {
     }
 };
 
-// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of 
+// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of
 // phys_k as no. of e-folds before end of inflation
-double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq, 
+double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq,
                                     ToleranceCondition tol, double Nend)
 {
     matching_eq.set_offset(std::log(Phys_k));
@@ -291,7 +291,7 @@ public:
         // return true if the dispersion is >1% for any of the k samples
         for (auto i: dispersion)
         {
-            if (i > 0.01)
+            if (i > 0.05)
             {
                 return true;
             }
@@ -311,7 +311,7 @@ protected:
 // at k_pivot, and three-point function task with k=k_pivot for the equilateral and squeezed configurations
 static transport::local_environment env;
 static transport::argument_cache arg;
-static std::unique_ptr< transport::chaotic_mpi<double, std::vector<double>> > model;
+static std::unique_ptr< transport::attractor_model_mpi<double, std::vector<double>> > model;
 static std::unique_ptr< transport::twopf_task<double> > tk2;
 static std::unique_ptr< transport::twopf_task<double> > tk2_piv;
 static std::unique_ptr< transport::threepf_alphabeta_task<double> > tk3e;
@@ -328,7 +328,7 @@ void * setup(cosmosis::DataBlock * options)
     options->get_val(inflation::sectionName, "k_pivot", inflation::k_pivot_choice);
 
     // Record any configuration information required
-    model = std::make_unique< transport::chaotic_mpi<double, std::vector<double>> > (env, arg);
+    model = std::make_unique< transport::attractor_model_mpi<double, std::vector<double>> > (env, arg);
 
     // Pass back any object you like
     return options;
@@ -342,14 +342,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     const DATABLOCK_STATUS failure = (DATABLOCK_STATUS)1;
 
     //! Read in inflation parameters (Lagrangian and field initial values)
-    block->get_val(inflation::paramsSection, "m", inflation::m);
+    block->get_val(inflation::paramsSection, "Vzero", inflation::Vzero);
+    block->get_val(inflation::paramsSection, "A", inflation::A);
     block->get_val(inflation::paramsSection, "phi_init", inflation::phi_init);
+    block->get_val(inflation::paramsSection, "theta_init", inflation::theta_init);
     block->get_val(inflation::paramsSection, "phi_dot_init", inflation::phiDot_init);
-
-    // Print out of each of the inflation parameters read-in above
-    // std::cout << "m = " << inflation::m << std::endl;
-    // std::cout << "phi_init = " << inflation::phi_init << std::endl;
-    // std::cout << "phi_dot_init = " << inflation::phiDot_init << std::endl;
+    block->get_val(inflation::paramsSection, "theta_dot_init", inflation::thetaDot_init);
 
     // Set-up initial time for integration (N_init) and N_pre which is used to set the amount of sub-horizon evolution
     // to integrate before the chosen mode crosses the horizon.
@@ -358,10 +356,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
     // Create the parameters and initial_conditions objects that CppTransport needs using
     // the two functions defined above.
-    transport::parameters<double> params{inflation::M_P, inflation::parameter_creator(inflation::m), model.get()};
-    transport::initial_conditions<double> ics{"chaotic", params, inflation::init_cond_creator(inflation::phi_init,
-            inflation::phiDot_init), N_init, N_pre};
-    
+    transport::parameters<double> params{inflation::M_P, inflation::parameter_creator(inflation::Vzero, inflation::A), model.get()};
+    transport::initial_conditions<double> ics{"attractor_model", params, inflation::init_cond_creator(inflation::phi_init, inflation::theta_init,
+                                                                                              inflation::phiDot_init, inflation::thetaDot_init), N_init, N_pre};
+
     // Use a silly end value to find nEND and set the time range used by CppT to finish at nEND.
     double Nendhigh = 10000;
     transport::basic_range<double> dummy_times{N_init, Nendhigh, 2, transport::spacing::linear};
@@ -414,7 +412,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         //! construct a test twopf task to use with the compute_H function later
         transport::basic_range<double> times{N_init, nEND, 500, transport::spacing::linear};
         transport::basic_range<double> k_test{exp(0.0), exp(0.0), 1, transport::spacing::log_bottom};
-        transport::twopf_task<double> tk2_test{"chaotic.twopf_test", ics, times, k_test};
+        transport::twopf_task<double> tk2_test{"attractor_model.twopf_test", ics, times, k_test};
         tk2_test.set_collect_initial_conditions(true).set_adaptive_ics_efolds(5.0);
 
         //! Matching equation for physical wave-numbers
@@ -540,18 +538,18 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         transport::basic_range<double> times_sample{nEND-11.0, nEND, 12, transport::spacing::linear};
 
         // construct a twopf task based on the k values generated above
-        tk2 = std::make_unique< transport::twopf_task<double> > ("chaotic.twopf", ics, times_sample, ks);
+        tk2 = std::make_unique< transport::twopf_task<double> > ("attractor_model.twopf", ics, times_sample, ks);
         tk2->set_adaptive_ics_efolds(4.5);
         // construct a twopf task for the pivot scale
-        tk2_piv = std::make_unique< transport::twopf_task<double> > ("chaotic.twopf-pivot", ics, times_sample, k_pivot_range);
+        tk2_piv = std::make_unique< transport::twopf_task<double> > ("attractor_model.twopf-pivot", ics, times_sample, k_pivot_range);
         tk2_piv->set_adaptive_ics_efolds(4.5);
         // construct an equilateral threepf task based on the kt pivot scale made above
-        tk3e = std::make_unique< transport::threepf_alphabeta_task<double> > ("chaotic.threepf-equilateral", ics,
-                times_sample, kt_pivot_range, alpha_equi, beta_equi);
+        tk3e = std::make_unique< transport::threepf_alphabeta_task<double> > ("attractor_model.threepf-equilateral", ics,
+                                                                              times_sample, kt_pivot_range, alpha_equi, beta_equi);
         tk3e->set_adaptive_ics_efolds(4.5);
         // construct a squeezed threepf task based on the kt pivot scale made above.
-        tk3s = std::make_unique< transport::threepf_alphabeta_task<double> > ("chaotic.threepf-squeezed", ics,
-                times_sample, kt_pivot_range, alpha_sqz, beta_sqz);
+        tk3s = std::make_unique< transport::threepf_alphabeta_task<double> > ("attractor_model.threepf-squeezed", ics,
+                                                                              times_sample, kt_pivot_range, alpha_sqz, beta_sqz);
         tk3s->set_adaptive_ics_efolds(4.5);
 
         std::setprecision(9);
@@ -714,11 +712,11 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
            model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
        }
 
-       // Print-out of threepf samples
-    //    for (auto i = 0; i < eq_threepf_samples.size(); i++)
-    //    {
-    //        std::cout << "Threepf sample no: " << i << " - " << eq_threepf_samples[i] << " ; Redbsp: " << eq_redbsp_samples[i] << std::endl;
-    //    }
+        // Print-out of threepf samples
+        //    for (auto i = 0; i < eq_threepf_samples.size(); i++)
+        //    {
+        //        std::cout << "Threepf sample no: " << i << " - " << eq_threepf_samples[i] << " ; Redbsp: " << eq_redbsp_samples[i] << std::endl;
+        //    }
 
        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
        dispersion equi_B_disp_check(kt_pivot_range, times_sample, eq_threepf_samples);
