@@ -157,7 +157,7 @@ std::vector<double> polyfit( const std::vector<double>& oX,
     // create the X matrix
     for ( size_t nRow = 0; nRow < nCount; nRow++ )
     {
-        double nVal = 1.0f;
+        double nVal = 1.0;
         for ( int nCol = 0; nCol < nDegree; nCol++ )
         {
             oXMatrix(nRow, nCol) = nVal;
@@ -252,7 +252,7 @@ public:
     // move constructor
     dispersion(dispersion&&) = default;
     // destructor
-    virtual ~dispersion() = default;
+    ~dispersion() = default;
 
 // Dispersion calculation
 public:
@@ -478,7 +478,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
-        double dk = 1E-3 * k_pivot_cppt;
+        double dk = 1E-4 * k_pivot_cppt;
         transport::basic_range<double> k_pivot_range{k_pivot_cppt-(7.0*dk), k_pivot_cppt+(7.0*dk), 14, transport::spacing::linear};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
@@ -554,6 +554,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
                 times_sample, kt_pivot_range, alpha_sqz, beta_sqz);
         tk3s->set_adaptive_ics_efolds(4.5);
 
+        std::setprecision(9);
+
         //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
         // All batchers need the filesystem path and an unsigned int for logging TODO: Double check these are ok to use for every task!
         boost::filesystem::path lp(boost::filesystem::current_path());
@@ -591,6 +593,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         {
             throw time_varying_spectrum();
         }
+        twpf_pivot_dispersion.~dispersion();
 
         // Extract the A_s & a_t values: put the 15 A_s & A_t values into vectors for finding n_s and n_t with, then
         // take the values at index 7 (centre) to get the pivot scale.
@@ -609,6 +612,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             }
         }
 
+        // for (int i = 0; i < A_s_spec.size(); ++i)
+        // {
+        //     std::cout << std::setprecision(9) << A_s_spec[i] << std::endl;
+        //     std::cout << std::setprecision(9) << A_t_spec[i] << std::endl;
+        // }
+
         // std::cout << "r_pivot is: " << r_pivot << std::endl;
         // std::cout << "A_s (pivot) is: " << A_s_pivot << std::endl;
         // std::cout << "A_t (pivot) is: " << A_t_pivot << std::endl;
@@ -624,14 +633,25 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //        double ns_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
 //        double nt_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
 
-        transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
-        double ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
+        // transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
+        // double ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
 
-        transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
-        double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
+        // transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
+        // double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
 
-        std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
-        std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
+        std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << std::endl;
+        std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << std::endl;
+
+        // //! Create a temporary path & file for passing wave-number information to the datablock for class
+        // boost::filesystem::path temp_path_small = boost::filesystem::current_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
+        // std::ofstream outf(temp_path_small.string(), std::ios_base::out | std::ios_base::trunc);
+        // for (int i = 0; i < k_pivots.size(); ++i) {
+        //     outf << k_pivots[i] << "\t";
+        //     outf << A_s_spec[i] << "\t";
+        //     outf << ns_pivot << "\t";
+        //     outf << ns_pivot_linear << "\n";
+        // }
+        // outf.close();
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
@@ -658,6 +678,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             std::cout << "time-varying spectrum" << std::endl;
             throw time_varying_spectrum();
         }
+        twopf_task_disp.~dispersion();
 
         // find A_s & A_t for each k mode exiting at Nend-10, ..., Nend etc. We take the final time value at Nend to be
         // the amplitude for the scalar and tensor modes. The tensor-to-scalar ratio r is the ratio of these values.
@@ -705,6 +726,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
        if ( (equi_B_disp_check.dispersion_check() == true) or (equi_fNL_disp_check.dispersion_check() == true) ) {
            throw time_varying_spectrum();
        }
+       equi_B_disp_check.~dispersion();
+       equi_fNL_disp_check.~dispersion();
 
        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
        // do this by taking the value at the end of inflation
@@ -734,16 +757,23 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //            std::cout << "Squeezed threepf sample no: " << i << " - " << sq_threepf_samples[i] << " ; Redbsp: " << sq_redbsp_samples[i] << std::endl;
 //        }
 //
-//        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
-//        dispersion sq_B_disp_check(kt_pivot_range, times_sample, sq_threepf_samples);
-//        dispersion sq_fNL_disp_check(kt_pivot_range, times_sample, sq_redbsp_samples);
-//        if ( (sq_B_disp_check.dispersion_check() == true) or (sq_fNL_disp_check.dispersion_check() == true) ) {
-//            throw time_varying_spectrum();
-//        }
+//       // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
+//       dispersion sq_B_disp_check(kt_pivot_range, times_sample, sq_threepf_samples);
+//       dispersion sq_fNL_disp_check(kt_pivot_range, times_sample, sq_redbsp_samples);
+//       if ( (sq_B_disp_check.dispersion_check() == true) or (sq_fNL_disp_check.dispersion_check() == true) ) {
+//           throw time_varying_spectrum();
+//       }
+//       sq_B_disp_check.~dispersion();
+//       sq_fNL_disp_check.~dispersion();
 //
 //        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
 //        B_squ_piv = sq_threepf_samples.back();
 //        fNL_squ_piv = sq_redbsp_samples.back();
+
+    tk2.reset();
+    tk2_piv.reset();
+    tk3e.reset();
+    tk3s.reset();
 
     // Begin catches for different exceptions thrown from a failed integration sample.
     } catch (transport::end_of_inflation_not_found& xe) {
