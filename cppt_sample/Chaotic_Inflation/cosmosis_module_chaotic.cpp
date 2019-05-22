@@ -557,7 +557,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::setprecision(9);
 
         //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
-        // All batchers need the filesystem path and an unsigned int for logging TODO: Double check these are ok to use for every task!
+        // All batchers need the filesystem path and an unsigned int for logging
         boost::filesystem::path lp(boost::filesystem::current_path());
         unsigned int w;
         int g = 0;
@@ -593,7 +593,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         {
             throw time_varying_spectrum();
         }
-        twpf_pivot_dispersion.~dispersion();
 
         // Extract the A_s & a_t values: put the 15 A_s & A_t values into vectors for finding n_s and n_t with, then
         // take the values at index 7 (centre) to get the pivot scale.
@@ -678,7 +677,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             std::cout << "time-varying spectrum" << std::endl;
             throw time_varying_spectrum();
         }
-        twopf_task_disp.~dispersion();
 
         // find A_s & A_t for each k mode exiting at Nend-10, ..., Nend etc. We take the final time value at Nend to be
         // the amplitude for the scalar and tensor modes. The tensor-to-scalar ratio r is the ratio of these values.
@@ -726,8 +724,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
        if ( (equi_B_disp_check.dispersion_check() == true) or (equi_fNL_disp_check.dispersion_check() == true) ) {
            throw time_varying_spectrum();
        }
-       equi_B_disp_check.~dispersion();
-       equi_fNL_disp_check.~dispersion();
 
        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
        // do this by taking the value at the end of inflation
@@ -763,8 +759,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //       if ( (sq_B_disp_check.dispersion_check() == true) or (sq_fNL_disp_check.dispersion_check() == true) ) {
 //           throw time_varying_spectrum();
 //       }
-//       sq_B_disp_check.~dispersion();
-//       sq_fNL_disp_check.~dispersion();
 //
 //        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
 //        B_squ_piv = sq_threepf_samples.back();
