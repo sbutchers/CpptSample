@@ -291,7 +291,7 @@ public:
         // return true if the dispersion is >1% for any of the k samples
         for (auto i: dispersion)
         {
-            if (i > 0.01)
+            if (i > 0.05)
             {
                 return true;
             }
@@ -379,8 +379,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     double nt_pivot;
     double ns_pivot_linear;
     double nt_pivot_linear;
-    double ns_pivot_spline;
-    double nt_pivot_spline;
     std::vector<double> r;
     // Threepf observables (at pivot scale)
     double B_equi_piv;
@@ -405,7 +403,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     try {
         //! compute nEND-> throw exception struct defined above if we have nEND < 60.0 e-folds
         double nEND = model->compute_end_of_inflation(&bkg, Nendhigh);
-        std::cout << "Inflation lasts for: " << nEND << " e-folds." << std::endl;
+        // std::cout << "Inflation lasts for: " << nEND << " e-folds." << std::endl;
         if (nEND < 60.0)
         {
             throw le60inflation();
@@ -478,7 +476,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
-        double dk = 1E-4 * k_pivot_cppt;
+        double dk = 1E-3 * k_pivot_cppt;
         transport::basic_range<double> k_pivot_range{k_pivot_cppt-(7.0*dk), k_pivot_cppt+(7.0*dk), 14, transport::spacing::linear};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
@@ -553,8 +551,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk3s = std::make_unique< transport::threepf_alphabeta_task<double> > ("chaotic.threepf-squeezed", ics,
                 times_sample, kt_pivot_range, alpha_sqz, beta_sqz);
         tk3s->set_adaptive_ics_efolds(4.5);
-
-        std::setprecision(9);
 
         //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
         // All batchers need the filesystem path and an unsigned int for logging
@@ -638,8 +634,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
         // double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
 
-        std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << std::endl;
-        std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << std::endl;
+        // std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << std::endl;
+        // std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << std::endl;
 
         // //! Create a temporary path & file for passing wave-number information to the datablock for class
         // boost::filesystem::path temp_path_small = boost::filesystem::current_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
@@ -833,6 +829,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // std::cout << "Temp. path = " << temp_path.string() << std::endl;
     std::ofstream outf(temp_path.string(), std::ios_base::out | std::ios_base::trunc);
     for (int i = 0; i < Phys_waveno_sample.size(); ++i) {
+        std::setprecision(9);
         outf << Phys_waveno_sample[i] << "\t";
         outf << A_s[i] << "\t";
         outf << A_t[i] << "\n";
@@ -850,8 +847,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::twopf_name, "n_t", nt_pivot );
     status = block->put_val( inflation::twopf_name, "n_s_lin", ns_pivot_linear );
     status = block->put_val( inflation::twopf_name, "n_t_lin", nt_pivot_linear );
-    status = block->put_val( inflation::twopf_name, "n_s_spl", ns_pivot_spline );
-    status = block->put_val( inflation::twopf_name, "n_t_spl", nt_pivot_spline );
 
     status = block->put_val( inflation::twopf_name, "r", r_pivot );
     // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
