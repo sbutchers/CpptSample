@@ -157,7 +157,7 @@ std::vector<double> polyfit( const std::vector<double>& oX,
     // create the X matrix
     for ( size_t nRow = 0; nRow < nCount; nRow++ )
     {
-        double nVal = 1.0f;
+        double nVal = 1.0;
         for ( int nCol = 0; nCol < nDegree; nCol++ )
         {
             oXMatrix(nRow, nCol) = nVal;
@@ -252,7 +252,7 @@ public:
     // move constructor
     dispersion(dispersion&&) = default;
     // destructor
-    virtual ~dispersion() = default;
+    ~dispersion() = default;
 
 // Dispersion calculation
 public:
@@ -291,7 +291,7 @@ public:
         // return true if the dispersion is >1% for any of the k samples
         for (auto i: dispersion)
         {
-            if (i > 0.01)
+            if (i > 0.05)
             {
                 return true;
             }
@@ -347,9 +347,9 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     block->get_val(inflation::paramsSection, "phi_dot_init", inflation::phiDot_init);
 
     // Print out of each of the inflation parameters read-in above
-    std::cout << "lambda = " << inflation::lambda << std::endl;
-    std::cout << "phi_init = " << inflation::phi_init << std::endl;
-    std::cout << "phi_dot_init = " << inflation::phiDot_init << std::endl;
+    // std::cout << "lambda = " << inflation::lambda << std::endl;
+    // std::cout << "phi_init = " << inflation::phi_init << std::endl;
+    // std::cout << "phi_dot_init = " << inflation::phiDot_init << std::endl;
 
     // Set-up initial time for integration (N_init) and N_pre which is used to set the amount of sub-horizon evolution
     // to integrate before the chosen mode crosses the horizon.
@@ -379,8 +379,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     double nt_pivot;
     double ns_pivot_linear;
     double nt_pivot_linear;
-    double ns_pivot_spline;
-    double nt_pivot_spline;
     std::vector<double> r;
     // Threepf observables (at pivot scale)
     double B_equi_piv;
@@ -405,7 +403,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     try {
         //! compute nEND-> throw exception struct defined above if we have nEND < 60.0 e-folds
         double nEND = model->compute_end_of_inflation(&bkg, Nendhigh);
-        std::cout << "Inflation lasts for: " << nEND << " e-folds." << std::endl;
+        // std::cout << "Inflation lasts for: " << nEND << " e-folds." << std::endl;
         if (nEND < 60.0)
         {
             throw le60inflation();
@@ -555,7 +553,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk3s->set_adaptive_ics_efolds(4.5);
 
         //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
-        // All batchers need the filesystem path and an unsigned int for logging TODO: Double check these are ok to use for every task!
+        // All batchers need the filesystem path and an unsigned int for logging
         boost::filesystem::path lp(boost::filesystem::current_path());
         unsigned int w;
         int g = 0;
@@ -624,14 +622,14 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //        double ns_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
 //        double nt_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
 
-        transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
-        double ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
+        // transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
+        // double ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
 
-        transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
-        double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
+        // transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
+        // double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
 
-        std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
-        std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
+        // std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
+        // std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
@@ -734,16 +732,21 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //            std::cout << "Squeezed threepf sample no: " << i << " - " << sq_threepf_samples[i] << " ; Redbsp: " << sq_redbsp_samples[i] << std::endl;
 //        }
 //
-//        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
-//        dispersion sq_B_disp_check(kt_pivot_range, times_sample, sq_threepf_samples);
-//        dispersion sq_fNL_disp_check(kt_pivot_range, times_sample, sq_redbsp_samples);
-//        if ( (sq_B_disp_check.dispersion_check() == true) or (sq_fNL_disp_check.dispersion_check() == true) ) {
-//            throw time_varying_spectrum();
-//        }
+//       // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
+//       dispersion sq_B_disp_check(kt_pivot_range, times_sample, sq_threepf_samples);
+//       dispersion sq_fNL_disp_check(kt_pivot_range, times_sample, sq_redbsp_samples);
+//       if ( (sq_B_disp_check.dispersion_check() == true) or (sq_fNL_disp_check.dispersion_check() == true) ) {
+//           throw time_varying_spectrum();
+//       }
 //
 //        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
 //        B_squ_piv = sq_threepf_samples.back();
 //        fNL_squ_piv = sq_redbsp_samples.back();
+
+    tk2.reset();
+    tk2_piv.reset();
+    tk3e.reset();
+    tk3s.reset();
 
     // Begin catches for different exceptions thrown from a failed integration sample.
     } catch (transport::end_of_inflation_not_found& xe) {
@@ -809,6 +812,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // std::cout << "Temp. path = " << temp_path.string() << std::endl;
     std::ofstream outf(temp_path.string(), std::ios_base::out | std::ios_base::trunc);
     for (int i = 0; i < Phys_waveno_sample.size(); ++i) {
+        std::setprecision(9);
         outf << Phys_waveno_sample[i] << "\t";
         outf << A_s[i] << "\t";
         outf << A_t[i] << "\n";
@@ -826,8 +830,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::twopf_name, "n_t", nt_pivot );
     status = block->put_val( inflation::twopf_name, "n_s_lin", ns_pivot_linear );
     status = block->put_val( inflation::twopf_name, "n_t_lin", nt_pivot_linear );
-    status = block->put_val( inflation::twopf_name, "n_s_spl", ns_pivot_spline );
-    status = block->put_val( inflation::twopf_name, "n_t_spl", nt_pivot_spline );
 
     status = block->put_val( inflation::twopf_name, "r", r_pivot );
     // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
