@@ -17,6 +17,9 @@
 #include "boost/filesystem.hpp"
 #include <boost/range/adaptors.hpp>
 #include <boost/math/tools/roots.hpp>
+#include <boost/numeric/ublas/matrix.hpp>
+#include <boost/numeric/ublas/lu.hpp>
+#include <boost/assert.hpp>
 // Include batcher file for integration
 #include "sampling_integration_batcher.h"
 
@@ -35,6 +38,9 @@ namespace inflation {
     // no. of k samples for CLASS read in from ini file
     int num_k_samples;
 
+    // User-chosen k_pivot scale [Mpc^-1]
+    double k_pivot_choice;
+
     // function to create a transport::parameters<double> object called params
     std::vector<double> parameter_creator(double R0, double V0, double eta_R, double g_R, double lambda_R, double alpha) {
         std::vector<double> output{R0, V0, eta_R, g_R, lambda_R, alpha};
@@ -48,8 +54,9 @@ namespace inflation {
     }
 
     // ints for capturing failed samples
-    int no_end_inflate, neg_Hsq, integrate_nan, zero_massless, neg_epsilon, large_epsilon, neg_V,
-    failed_horizonExit, ics_before_start, inflate60, time_var_pow_spec;
+    int no_end_inflate = 0, neg_Hsq = 0, integrate_nan = 0, zero_massless = 0, neg_epsilon = 0,
+        large_epsilon = 0, neg_V = 0, failed_horizonExit = 0, ics_before_start = 0, inflate60 = 0,
+        time_var_pow_spec = 0;
 }
 
 // exception for catching when <60 e-folds inflation given as we need at least 60 e-folds for sampling
@@ -73,8 +80,10 @@ struct ToleranceCondition {
     }
 };
 
-// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of phys_k
-double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq, ToleranceCondition tol)
+// Set-up a bisection function using a spline to extract a value of N_exit from some desired value of
+// phys_k as no. of e-folds before end of inflation
+double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>& matching_eq,
+                                    ToleranceCondition tol, double Nend)
 {
     matching_eq.set_offset(std::log(Phys_k));
     std::string task_name = "find N_exit of physical wave-number";
@@ -82,6 +91,7 @@ double compute_Nexit_for_physical_k (double Phys_k, transport::spline1d<double>&
     double Nexit;
     Nexit = transport::task_impl::find_zero_of_spline(task_name, bracket_error, matching_eq, tol);
     matching_eq.set_offset(0.0);
+    Nexit = Nend - Nexit;
     return Nexit;
 }
 
@@ -109,26 +119,112 @@ std::vector<double> pyLogspace (double start, double stop, int num, double base 
     return log_vector;
 }
 
-// Set-up a function that returns the k-derivative of A_s or A_t as a double.
-double spec_derivative(const double k, const double dk, std::vector<double> Amplitude)
+// Set-up a function that applies ln to every element of the vector (useful for dlnA/dlnk derivatives)
+std::vector<double> vector_logger( std::vector<double>& no_log_vec)
 {
-    // compute d/dk[Amplitude] using a three-point central difference of O(dk^6).
-    const double dk1 = dk;
-    const double dk2 = dk1*2.0;
-    const double dk3 = dk1*3.0;
+    size_t vecSize = no_log_vec.size();
+    std::vector<double> logvec(vecSize);
+    for (size_t i = 0; i < vecSize; i++)
+    {
+        logvec[i] = std::log(no_log_vec[i]);
+    }
 
-    const double Amp1 = (Amplitude[4] - Amplitude[2]) / 2;
-    const double Amp2 = (Amplitude[5] - Amplitude[1]) / 4;
-    const double Amp3 = (Amplitude[6] - Amplitude[0]) / 6;
-
-    const double fifteen_Amp1 = 15 * Amp1;
-    const double six_Amp2 = 6 * Amp2;
-    const double ten_dk1 = 10 * dk1;
-
-    const double dAdk = ((fifteen_Amp1 - six_Amp2) + Amp3) / ten_dk1;
-    const double k_div_A = k / Amplitude[3];
-    return (dAdk * k_div_A);
+    return logvec;
 }
+
+// Set-up a function that fits an nDegree polynomial to equal-sized vectors oX and oY
+std::vector<double> polyfit( const std::vector<double>& oX,
+                             const std::vector<double>& oY, int nDegree )
+{
+    using namespace boost::numeric::ublas;
+
+    if ( oX.size() != oY.size() )
+        throw std::invalid_argument( "X and Y vector sizes do not match" );
+
+    // more intuative this way
+    nDegree++;
+
+    size_t nCount =  oX.size();
+    matrix<double> oXMatrix( nCount, nDegree );
+    matrix<double> oYMatrix( nCount, 1 );
+
+    // copy y matrix
+    for ( size_t i = 0; i < nCount; i++ )
+    {
+        oYMatrix(i, 0) = oY[i];
+    }
+
+    // create the X matrix
+    for ( size_t nRow = 0; nRow < nCount; nRow++ )
+    {
+        double nVal = 1.0;
+        for ( int nCol = 0; nCol < nDegree; nCol++ )
+        {
+            oXMatrix(nRow, nCol) = nVal;
+            nVal *= oX[nRow];
+        }
+    }
+
+    // transpose X matrix
+    matrix<double> oXtMatrix( trans(oXMatrix) );
+    // multiply transposed X matrix with X matrix
+    matrix<double> oXtXMatrix( prec_prod(oXtMatrix, oXMatrix) );
+    // multiply transposed X matrix with Y matrix
+    matrix<double> oXtYMatrix( prec_prod(oXtMatrix, oYMatrix) );
+
+    // lu decomposition
+    permutation_matrix<int> pert(oXtXMatrix.size1());
+    const std::size_t singular = lu_factorize(oXtXMatrix, pert);
+    // must be singular
+    BOOST_ASSERT( singular == 0 );
+
+    // backsubstitution
+    lu_substitute(oXtXMatrix, pert, oXtYMatrix);
+
+    // copy the result to coeff
+    return std::vector<double>( oXtYMatrix.data().begin(), oXtYMatrix.data().end() );
+}
+
+// Set-up a function that computes the spectral index derivatives using the polyfit and vector_logger functions
+// This takes in a k_value for the desired wavenumber to evaluate the derivative, a vector of wavenumbers k, a
+// vector of spectrum values A, a boolean set to true for scalar spectral index and an optional argument for nDegree(=2)
+double spec_index_deriv (double k_value, std::vector<double>& k, std::vector<double>& A,
+                         bool scalar, int nDegree = 2)
+{
+    std::vector<double> coeffs = polyfit(vector_logger(k), vector_logger(A), nDegree);
+    double spectral_index = 0.0;
+    for (int i = 1; i < coeffs.size(); i++)
+    {
+        double power = i - 1.0;
+        spectral_index += i * pow(std::log(k_value), power) * coeffs[i];
+    }
+    if (scalar == true)
+    {
+        spectral_index++;
+    }
+    return spectral_index;
+}
+
+// Set-up a function that returns the k-derivative of A_s or A_t as a double.
+//double spec_derivative(const double k, const double dk, std::vector<double> Amplitude)
+//{
+//    // compute d/dk[Amplitude] using a three-point central difference of O(dk^6).
+//    const double dk1 = dk;
+//    const double dk2 = dk1*2.0;
+//    const double dk3 = dk1*3.0;
+//
+//    const double Amp1 = (Amplitude[4] - Amplitude[2]) / 2;
+//    const double Amp2 = (Amplitude[5] - Amplitude[1]) / 4;
+//    const double Amp3 = (Amplitude[6] - Amplitude[0]) / 6;
+//
+//    const double fifteen_Amp1 = 15 * Amp1;
+//    const double six_Amp2 = 6 * Amp2;
+//    const double ten_dk1 = 10 * dk1;
+//
+//    const double dAdk = ((fifteen_Amp1 - six_Amp2) + Amp3) / ten_dk1;
+//    const double k_div_A = k / Amplitude[3];
+//    return (dAdk * k_div_A);
+//}
 
 // Set-up a dispersion class that has a function which checks the power spectrum values contained in samples with k and
 // t samples stored in k_size and time_size for strongly-varying spectrum values. This is when the std deviation of
@@ -156,7 +252,7 @@ public:
     // move constructor
     dispersion(dispersion&&) = default;
     // destructor
-    virtual ~dispersion() = default;
+    ~dispersion() = default;
 
 // Dispersion calculation
 public:
@@ -189,13 +285,13 @@ public:
         std::vector<double> dispersion(k_size);
         for (int i = 0; i < mean.size(); ++i)
         {
-            dispersion[i] = std_dev[i]/mean[i];
+            dispersion[i] = (1 + 1.0 / (4.0 * time_size)) * std_dev[i]/mean[i]; // unbiased estimator (1 + 1/4n)
         }
 
-        // return true if the dispersion is >10% for any of the k samples
+        // return true if the dispersion is >1% for any of the k samples
         for (auto i: dispersion)
         {
-            if (i > 0.1)
+            if (i > 0.05)
             {
                 return true;
             }
@@ -212,7 +308,7 @@ protected:
 };
 
 // Create instances of the model and separate integration tasks for the two-point function -> a sampling one and a task
-// at k_pivot=0.05Mpc^(-1), and three-point function task with k=k_pivot for the equilateral and squeezed configurations
+// at k_pivot, and three-point function task with k=k_pivot for the equilateral and squeezed configurations
 static transport::local_environment env;
 static transport::argument_cache arg;
 static std::unique_ptr< transport::gelaton_mpi<double, std::vector<double>> > model;
@@ -229,6 +325,7 @@ void * setup(cosmosis::DataBlock * options)
     // passed via the "options" argument
     options->get_val(inflation::sectionName, "M_P", inflation::M_P); // TODO: get rid of this option?
     options->get_val(inflation::sectionName, "k_samples", inflation::num_k_samples);
+    options->get_val(inflation::sectionName, "k_pivot", inflation::k_pivot_choice);
 
     // Record any configuration information required
     model = std::make_unique< transport::gelaton_mpi<double, std::vector<double>> > (env, arg);
@@ -256,17 +353,17 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     block->get_val(inflation::paramsSection, "Rdot_init",     inflation::Rdot_init);
     block->get_val(inflation::paramsSection, "thetadot_init", inflation::thetadot_init);
 
-    // Print out of each of the inflation parameters read-in above
-    std::cout << "V0 = " << inflation::V0 << std::endl;
-    std::cout << "eta_R = " << inflation::eta_R << std::endl;
-    std::cout << "g_R = " << inflation::g_R << std::endl;
-    std::cout << "lambda_R = " << inflation::lambda_R << std::endl;
-    std::cout << "alpha = " << inflation::alpha << std::endl;
-    std::cout << "R0 = " << inflation::R0 << std::endl;
-    std::cout << "R_init = " << inflation::R_init << std::endl;
-    std::cout << "Rdot_init = " << inflation::Rdot_init << std::endl;
-    std::cout << "theta_init = " << inflation::theta_init << std::endl;
-    std::cout << "thetadot_init = " << inflation::thetadot_init << std::endl;
+//    // Print out of each of the inflation parameters read-in above
+//    std::cout << "V0 = " << inflation::V0 << std::endl;
+//    std::cout << "eta_R = " << inflation::eta_R << std::endl;
+//    std::cout << "g_R = " << inflation::g_R << std::endl;
+//    std::cout << "lambda_R = " << inflation::lambda_R << std::endl;
+//    std::cout << "alpha = " << inflation::alpha << std::endl;
+//    std::cout << "R0 = " << inflation::R0 << std::endl;
+//    std::cout << "R_init = " << inflation::R_init << std::endl;
+//    std::cout << "Rdot_init = " << inflation::Rdot_init << std::endl;
+//    std::cout << "theta_init = " << inflation::theta_init << std::endl;
+//    std::cout << "thetadot_init = " << inflation::thetadot_init << std::endl;
 
     // Set-up initial time for integration (N_init) and N_pre which is used to set the amount of sub-horizon evolution
     // to integrate before the chosen mode crosses the horizon.
@@ -295,6 +392,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     double r_pivot;
     double ns_pivot;
     double nt_pivot;
+    double ns_pivot_linear;
+    double nt_pivot_linear;
     std::vector<double> r;
     // Threepf observables (at pivot scale)
     double B_equi_piv;
@@ -306,7 +405,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     // Wavenumber k vectors for passing to CLASS, CAMB or another Boltzmann code
     // Use the pyLogspace function to produce log-spaced values between 10^(-6) & 10^(0) Mpc^(-1) with the number of
     // k samples given in 'num_k_samples' read-in above.
-    std::vector<double> Phys_waveno_sample = pyLogspace(-6.0, 0.0, inflation::num_k_samples, 10);
+    std::vector<double> Phys_waveno_sample = pyLogspace(-6.0, 1.7, inflation::num_k_samples, 10);
     std::vector<double> k_conventional(Phys_waveno_sample.size());
     // Vectors for storing A_s and A_t before writing them to a temporary file
     std::vector<double> A_s;
@@ -319,6 +418,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     try {
         //! compute nEND-> throw exception struct defined above if we have nEND < 60.0 e-folds
         double nEND = model->compute_end_of_inflation(&bkg, Nendhigh);
+        // std::cout << "Inflation lasts for: " << nEND << " e-folds." << std::endl;
         if (nEND < 60.0)
         {
             throw le60inflation();
@@ -339,7 +439,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Set-up the different parameters needed for the matching equation
         double Hend = 0.5 * log_H.back(); // value of H at the end of inflation
         double norm_const = std::log(243.5363 * pow(3.0, 0.25)); // dimnless matching eq has const = (3^(1/4)*M_P)/1E16 GeV
-        double k_pivot = std::log(0.05); // pivot scale defined as 0.05 Mpc^-1 here
+        double k_pivot = std::log(0.05); // pivot scale defined as 0.05 Mpc^-1 in the matching eq (DO NOT CHANGE!)
         double e_fold_const = 55.75; // constant defined in the matching eq.
         double constants = e_fold_const + k_pivot + norm_const - Hend; // wrap up constants in a single term
 
@@ -355,10 +455,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Set-up a spline to use with the bisection method defined later.
         transport::spline1d<double> spline_match_eq (N_H, log_physical_k);
 
-        // Use the bisection method to find the e-fold exit of k pivot.
-        N_pivot_exit = compute_Nexit_for_physical_k(0.05, spline_match_eq, tol);
-        std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
-        std::cout << "k* from spline is:" << spline_match_eq(N_pivot_exit) << std::endl;
+        // Use the bisection method to find the e-fold exit of k pivot_choice.
+        N_pivot_exit = compute_Nexit_for_physical_k(inflation::k_pivot_choice, spline_match_eq, tol, nEND);
+        // std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
+        // std::cout << "k* from spline is:" << spline_match_eq(N_pivot_exit) << std::endl;
 
         // Construct a vector of exit times (= no. of e-folds BEFORE the end of inflation!)
 //        std::vector<double> Phys_k_exits (Phys_waveno_sample.size());
@@ -378,7 +478,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             //std::cout << Phys_k_exits[i] << "\t" << k_conventional[i] << std::endl;
         }
 
-        // Put these into an aggregate range one-by-one
+        // Put these into a transport::aggregate range one-by-one
         transport::aggregate_range<double> ks;
         for (int i = 0; i < k_conventional.size(); ++i)
         {
@@ -386,13 +486,13 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             ks += k_temp;
         }
 
-        // Construct a CppT normalised wave-number for the pivot scale (=0.05Mpc^-1) using the linearity constant
-        k_pivot_cppt = 0.05 / std::exp(gamma);
+        // Construct a CppT normalised wave-number for the chosen pivot scale using the linearity constant
+        k_pivot_cppt = inflation::k_pivot_choice / std::exp(gamma);
 
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
-        double dk = 0.0001 * k_pivot_cppt;
-        transport::basic_range<double> k_pivot_range{k_pivot_cppt-(3*dk), k_pivot_cppt+(3*dk), 6, transport::spacing::linear};
+        double dk = 1E-3 * k_pivot_cppt;
+        transport::basic_range<double> k_pivot_range{k_pivot_cppt-(7.0*dk), k_pivot_cppt+(7.0*dk), 14, transport::spacing::linear};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
         transport::basic_range<double> kt_pivot_range{3.0*k_pivot_cppt, 3.0*k_pivot_cppt, 1, transport::spacing::linear};
@@ -468,14 +568,16 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk3s->set_adaptive_ics_efolds(4.5);
 
         //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
-        // All batchers need the filesystem path and an unsigned int for logging TODO: Double check these are ok to use for every task!
+        // All batchers need the filesystem path and an unsigned int for logging
         boost::filesystem::path lp(boost::filesystem::current_path());
         unsigned int w;
+        int g = 0;
+        bool no_log = true;
 
         //! Twopf pivot task
         std::vector<double> pivot_twopf_samples;
         std::vector<double> tens_pivot_samples;
-        twopf_sampling_batcher pivot_batcher(pivot_twopf_samples, tens_pivot_samples, lp, w, model.get(), tk2_piv.get());
+        twopf_sampling_batcher pivot_batcher(pivot_twopf_samples, tens_pivot_samples, lp, w, model.get(), tk2_piv.get(), g, no_log);
 
         // Integrate the pivot task
         auto db_piv = tk2_piv->get_twopf_database();
@@ -493,7 +595,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         std::vector<double> k_pivots;
         for (int i = 0; i < k_pivot_range.size(); ++i)
         {
-            k_pivots.push_back(k_pivot_range[i]);
+            k_pivots.push_back(k_pivot_range[i] * std::exp(gamma) );
         }
 
         // Perform a dispersion check on the spectrum values - throw time_varying_spectrum if they're varying.
@@ -501,10 +603,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         if(twpf_pivot_dispersion.dispersion_check() == true)
         {
             throw time_varying_spectrum();
-        } else { std::cout << "spectrum is good!" << std::endl; }
+        }
 
-        // Extract the A_s & a_t values: put the 7 A_s & A_t values into vectors for finding n_s and n_t with, then
-        // take the values at index 3 (centre) to get the pivot scale.
+        // Extract the A_s & a_t values: put the 15 A_s & A_t values into vectors for finding n_s and n_t with, then
+        // take the values at index 7 (centre) to get the pivot scale.
         std::vector<double> A_s_spec(k_pivot_range.size());
         std::vector<double> A_t_spec(k_pivot_range.size());
         for (int k = 0; k < k_pivot_range.size(); ++k)
@@ -512,7 +614,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             int index = (times_sample.size() * k) + (times_sample.size() - 1);
             A_s_spec[k] = pivot_twopf_samples[index];
             A_t_spec[k] = tens_pivot_samples[index];
-            if (k==3) 
+            if (k==7)
             {
                 A_s_pivot = A_s_spec[k];
                 A_t_pivot = A_t_spec[k];
@@ -521,23 +623,41 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         }
 
         // Use the function defined above to find dA/dk and compute n_s and n_t from those
-        ns_pivot = spec_derivative(k_pivot_cppt, dk, A_s_spec) + 1.0;
-        nt_pivot = spec_derivative(k_pivot_cppt, dk, A_t_spec);
+        ns_pivot = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, true);
+        nt_pivot = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_t_spec, false);
 
-        transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
-        double ns_pivot_spline = ns_piv_spline.eval_diff(k_pivot_cppt) * (k_pivot_cppt / A_s_pivot) + 1.0;
+        ns_pivot_linear = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, true, 1);
+        nt_pivot_linear = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, false, 1);
 
-        transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
-        double nt_pivot_spline = nt_piv_spline.eval_diff(k_pivot_cppt) * (k_pivot_cppt / A_t_pivot);
+//        double dk_phys = dk*std::exp(gamma);
+//        double ns_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
+//        double nt_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
 
-        std::cout << "ns: " << ns_pivot << "\t" << "ns(spline): " << ns_pivot_spline << std::endl;
-        std::cout << "nt: " << nt_pivot << "\t" << "nt(spline): " << nt_pivot_spline << std::endl;
+        // transport::spline1d<double> ns_piv_spline(k_pivots, A_s_spec);
+        // double ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
+
+        // transport::spline1d<double> nt_piv_spline(k_pivots, A_t_spec);
+        // double nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
+
+        // std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << std::endl;
+        // std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << std::endl;
+
+        // //! Create a temporary path & file for passing wave-number information to the datablock for class
+        // boost::filesystem::path temp_path_small = boost::filesystem::current_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
+        // std::ofstream outf(temp_path_small.string(), std::ios_base::out | std::ios_base::trunc);
+        // for (int i = 0; i < k_pivots.size(); ++i) {
+        //     outf << k_pivots[i] << "\t";
+        //     outf << A_s_spec[i] << "\t";
+        //     outf << ns_pivot << "\t";
+        //     outf << ns_pivot_linear << "\n";
+        // }
+        // outf.close();
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
         std::vector<double> samples;
         std::vector<double> tens_samples_twpf;
-        twopf_sampling_batcher batcher(samples, tens_samples_twpf, lp, w, model.get(), tk2.get());
+        twopf_sampling_batcher batcher(samples, tens_samples_twpf, lp, w, model.get(), tk2.get(), g, no_log);
 
         // Integrate all of the twopf samples provided above in the tk2 task
         auto db = tk2->get_twopf_database();
@@ -557,7 +677,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         {
             std::cout << "time-varying spectrum" << std::endl;
             throw time_varying_spectrum();
-        } else { std::cout << "spectrum is good" << std::endl; }
+        }
 
         // find A_s & A_t for each k mode exiting at Nend-10, ..., Nend etc. We take the final time value at Nend to be
         // the amplitude for the scalar and tensor modes. The tensor-to-scalar ratio r is the ratio of these values.
@@ -579,37 +699,37 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         //! Integrate the tasks created for the equilateral 3-point function above
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
-//        std::vector<double> eq_twopf_samples;
-//        std::vector<double> eq_tens_samples;
-//        std::vector<double> eq_threepf_samples;
-//        std::vector<double> eq_redbsp_samples;
-//        threepf_sampling_batcher eq_thpf_batcher(eq_twopf_samples, eq_tens_samples, eq_threepf_samples, eq_redbsp_samples,
-//                lp, w, model.get(), tk3e.get());
-//
-//        // Integrate all of the threepf samples provided in the tk3e task
-//        auto eq_db = tk3e->get_threepf_database();
-//        for (auto t = eq_db.record_cbegin(); t!= eq_db.record_cend(); ++t)
-//        {
-//            model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
-//        }
-//
-//        // Print-out of threepf samples
+       std::vector<double> eq_twopf_samples;
+       std::vector<double> eq_tens_samples;
+       std::vector<double> eq_threepf_samples;
+       std::vector<double> eq_redbsp_samples;
+       threepf_sampling_batcher eq_thpf_batcher(eq_twopf_samples, eq_tens_samples, eq_threepf_samples, eq_redbsp_samples,
+               lp, w, model.get(), tk3e.get(), g, no_log);
+
+       // Integrate all of the threepf samples provided in the tk3e task
+       auto eq_db = tk3e->get_threepf_database();
+       for (auto t = eq_db.record_cbegin(); t!= eq_db.record_cend(); ++t)
+       {
+           model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
+       }
+
+       // Print-out of threepf samples
 //        for (auto i = 0; i < eq_threepf_samples.size(); i++)
 //        {
 //            std::cout << "Threepf sample no: " << i << " - " << eq_threepf_samples[i] << " ; Redbsp: " << eq_redbsp_samples[i] << std::endl;
 //        }
-//
-//        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
-//        dispersion equi_B_disp_check(kt_pivot_range, times_sample, eq_threepf_samples);
-//        dispersion equi_fNL_disp_check(kt_pivot_range, times_sample, eq_redbsp_samples);
-//        if ( (equi_B_disp_check.dispersion_check() == true) or (equi_fNL_disp_check.dispersion_check() == true) ) {
-//            throw time_varying_spectrum();
-//        }
-//
-//        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
-//        // do this by taking the value at the end of inflation
-//        B_equi_piv = eq_threepf_samples.back();
-//        fNL_equi_piv = eq_redbsp_samples.back();
+
+       // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
+       dispersion equi_B_disp_check(kt_pivot_range, times_sample, eq_threepf_samples);
+       dispersion equi_fNL_disp_check(kt_pivot_range, times_sample, eq_redbsp_samples);
+       if ( (equi_B_disp_check.dispersion_check() == true) or (equi_fNL_disp_check.dispersion_check() == true) ) {
+           throw time_varying_spectrum();
+       }
+
+       // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
+       // do this by taking the value at the end of inflation
+       B_equi_piv = eq_threepf_samples.back();
+       fNL_equi_piv = eq_redbsp_samples.back();
 
         //! Integrate the task for the squeezed 3-point function above
 //        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
@@ -644,6 +764,11 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //        // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
 //        B_squ_piv = sq_threepf_samples.back();
 //        fNL_squ_piv = sq_redbsp_samples.back();
+
+    tk2.reset();
+    tk2_piv.reset();
+    tk3e.reset();
+    tk3s.reset();
 
     // Begin catches for different exceptions thrown from a failed integration sample.
     } catch (transport::end_of_inflation_not_found& xe) {
@@ -706,9 +831,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
     //! Create a temporary path & file for passing wave-number information to the datablock for class
     boost::filesystem::path temp_path = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
-    std::cout << "Temp. path = " << temp_path.string() << std::endl;
+    // std::cout << "Temp. path = " << temp_path.string() << std::endl;
     std::ofstream outf(temp_path.string(), std::ios_base::out | std::ios_base::trunc);
     for (int i = 0; i < Phys_waveno_sample.size(); ++i) {
+        std::setprecision(9);
         outf << Phys_waveno_sample[i] << "\t";
         outf << A_s[i] << "\t";
         outf << A_t[i] << "\n";
@@ -724,10 +850,13 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::twopf_name, "A_t", A_t_pivot );
     status = block->put_val( inflation::twopf_name, "n_s", ns_pivot );
     status = block->put_val( inflation::twopf_name, "n_t", nt_pivot );
+    status = block->put_val( inflation::twopf_name, "n_s_lin", ns_pivot_linear );
+    status = block->put_val( inflation::twopf_name, "n_t_lin", nt_pivot_linear );
+
     status = block->put_val( inflation::twopf_name, "r", r_pivot );
     // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
-//    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
-//    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi_piv );
+    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
+    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi_piv );
 //    status = block->put_val( inflation::thrpf_name, "B_squ", B_squ_piv );
 //    status = block->put_val( inflation::thrpf_name, "fNL_squ", fNL_squ_piv );
 

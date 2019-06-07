@@ -302,6 +302,10 @@ sampling_integration_batcher::sampling_integration_batcher(const boost::filesyst
       core->add_sink(this->log_sink);
 
       boost::log::add_common_attributes();
+    } else // if asking for no-logging, print *nothing* to the terminal -> speeds up sampling
+    {
+      boost::shared_ptr<boost::log::core> core = boost::log::core::get();
+      core->set_logging_enabled(false);
     }
 
 }

@@ -13,7 +13,7 @@ INCLUDE_DIRECTORIES(${CPPTRANSPORT_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR} ${C
 
 ADD_CUSTOM_COMMAND(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/gelaton_core.h ${CMAKE_CURRENT_BINARY_DIR}/gelaton_mpi.h
-  COMMAND CppTransport --verbose --fast ${CMAKE_CURRENT_SOURCE_DIR}/gelaton.model
+  COMMAND CppTransport --verbose --fast gelaton.model
   DEPENDS gelaton.model
 )
 
@@ -21,7 +21,7 @@ SET(HEADERS ${CMAKE_CURRENT_BINARY_DIR}/gelaton_core.h ${CMAKE_CURRENT_BINARY_DI
 
 ADD_CUSTOM_TARGET(Generator DEPENDS ${HEADERS})
 
-ADD_LIBRARY(cppt_sample SHARED cosmosis_module.cpp)
+ADD_LIBRARY(cppt_sample SHARED cosmosis_module_gelaton.cpp)
 ADD_DEPENDENCIES(cppt_sample Generator)
 TARGET_LINK_LIBRARIES(cppt_sample ${CPPTRANSPORT_LIBRARIES} ${COSMOSIS_SRC_DIR}/cosmosis/datablock/libcosmosis.so)
 SET_TARGET_PROPERTIES(cppt_sample PROPERTIES
