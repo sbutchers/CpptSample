@@ -476,7 +476,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the CppT normalised kpivot value to build a wave-number range for kpivot with some other values to use
         // for finding the spectral indices.
-        double dk = 1E-6 * k_pivot_cppt;
+        double dk = 1E-3 * k_pivot_cppt;
         transport::basic_range<double> k_pivot_range{k_pivot_cppt-(7.0*dk), k_pivot_cppt+(7.0*dk), 14, transport::spacing::log_bottom};
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
