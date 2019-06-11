@@ -607,6 +607,20 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             }
         }
 
+        //! Create a temporary path & file for passing the power spectrum to the datablock for the spectral indices
+        boost::filesystem::path temp_spec_path = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
+        std::ofstream out_f(temp_spec_path.string(), std::ios_base::out | std::ios_base::trunc);
+        for (int i = 0; i < k_pivots.size(); ++i) {
+            std::setprecision(9);
+            out_f << k_pivots[i] << "\t";
+            out_f << A_s_spec[i] << "\t";
+            out_f << A_t_spec[i] << "\n";
+        }
+        out_f.close();
+
+        // Use put_val to write the temporary file with k, P_s(k) and P_t(k) information for spectral indices
+        status = block->put_val( inflation::spec_file, "spec_index_table", temp_spec_path.string() );
+
         // for (int i = 0; i < A_s_spec.size(); ++i)
         // {
         //     std::cout << std::setprecision(9) << A_s_spec[i] << std::endl;
