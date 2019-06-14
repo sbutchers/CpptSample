@@ -841,7 +841,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
                   inflation::ics_before_start + inflation::inflate60 + inflation::time_var_pow_spec;
     if (err_sum >= 1)
     {
-        return failure;
+        //return failure;
+        std::cout << "An exception has been thrown!" << std::endl;
     }
 
     //! Create a temporary path & file for passing wave-number information to the datablock for class
