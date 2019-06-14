@@ -1,6 +1,6 @@
 from cosmosis.datablock import names, option_section
 from pandas import read_csv
-from numpy import arange, linspace, log
+from numpy import log
 from scipy.optimize import curve_fit
 
 
