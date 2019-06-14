@@ -56,6 +56,9 @@ def execute(block, config):
     block[twopf_name, "n_s_scipy"] = n_s
     block[twopf_name, "n_t_scipy"] = n_t
 
+    # Delete the temporary data file
+    os.remove( file )
+
     # We tell CosmoSIS that everything went fine by returning zero
     return 0
 
