@@ -46,7 +46,7 @@ namespace inflation {
 
     // function to create a transport::parameters<DataType> object called params
     std::vector<DataType> parameter_creator(DataType Vzero, DataType A) {
-        std::vector<DataType> output{m};
+        std::vector<DataType> output{Vzero, m};
         return output;
     }
 
