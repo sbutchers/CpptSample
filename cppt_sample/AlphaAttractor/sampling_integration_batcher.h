@@ -29,10 +29,10 @@
 // START OF BASIC BATCHER METHODS
 
 class basic_batcher
-  {
+{
   // Enum definitions needed for logging
-  public:
-    //! Logging severity level
+public:
+  //! Logging severity level
   enum class log_severity_level
   {
     datapipe_pull,
@@ -42,51 +42,51 @@ class basic_batcher
     critical
   };
 
-    //! logging sink
-    typedef boost::log::sinks::synchronous_sink< boost::log::sinks::text_file_backend > sink_t;
-    
-    //! logging source
-    typedef boost::log::sources::severity_logger<log_severity_level> logger;
+  //! logging sink
+  typedef boost::log::sinks::synchronous_sink<boost::log::sinks::text_file_backend> sink_t;
+
+  //! logging source
+  typedef boost::log::sources::severity_logger<log_severity_level> logger;
 
   // CONSTRUCTOR, DESTRUCTOR
-  public:
-    //! constructor
-  basic_batcher(const boost::filesystem::path &lp, unsigned int w, unsigned int g = 0, bool no_log = false);
+public:
+  //! constructor
+basic_batcher(const boost::filesystem::path &lp, unsigned int w, unsigned int g = 0, bool no_log = true);
 
-    //! move constructor
+  //! move constructor
   basic_batcher(basic_batcher &&) = default;
 
   ~basic_batcher() = default;
 
   // LOGGING FUNCTION
-  public:
-    //! Return logger
-    logger& get_log() { return(this->log_source); }
+public:
+  //! Return logger
+  logger &get_log() { return (this->log_source); }
 
-  protected:
-    //! cache number of fields associated with this integration
-//    const unsigned int Nfields;
+protected:
+  //! cache number of fields associated with this integration
+  //    const unsigned int Nfields;
 
-    //! Log directory path
-    boost::filesystem::path logdir_path;
+  //! Log directory path
+  boost::filesystem::path logdir_path;
 
-    //! Worker group associated with this batcher;
-    //! usually zero unless we are doing parallel batching.
-    //! Later, groups identify different integrations which have been chained together
-    unsigned int worker_group;
-    
-    //! Worker number associated with this batcher
-    unsigned int worker_number;
+  //! Worker group associated with this batcher;
+  //! usually zero unless we are doing parallel batching.
+  //! Later, groups identify different integrations which have been chained together
+  unsigned int worker_group;
 
-    // OTHER INTERNAL DATA
-    // LOGGING
-    //! Logger source
+  //! Worker number associated with this batcher
+  unsigned int worker_number;
+
+  // OTHER INTERNAL DATA
+  // LOGGING
+  //! Logger source
   boost::log::sources::severity_logger<basic_batcher::log_severity_level> log_source;
-    
-    //! Logger sink; note we are forced to use boost::shared_ptr<> because this
-    //! is what the Boost.Log API expects
-    boost::shared_ptr<sink_t> log_sink;
-  };
+
+  //! Logger sink; note we are forced to use boost::shared_ptr<> because this
+  //! is what the Boost.Log API expects
+  boost::shared_ptr<sink_t> log_sink;
+};
 
 // overload << to push log_severity_level to stream
 std::ostream &operator<<(std::ostream &stream, basic_batcher::log_severity_level level)
@@ -187,7 +187,7 @@ public:
   //! constructor
   sampling_integration_batcher(const boost::filesystem::path &lp, unsigned int w,
                                transport::model<number> *m, transport::integration_task<number> *tk,
-                               unsigned int g = 0, bool no_log = false);
+                               unsigned int g = 0, bool no_log = true);
 
   //! move constructor
   sampling_integration_batcher(sampling_integration_batcher<number> &&) = default;
@@ -217,9 +217,9 @@ class twopf_sampling_batcher : public sampling_integration_batcher<number>
 public:
   //! Constructor
   twopf_sampling_batcher(std::vector<number> &dt_twopf, std::vector<number> &dt_tenspf,
-                         const boost::filesystem::path& lp, unsigned int w,
+                         const boost::filesystem::path &lp, unsigned int w,
                          transport::model<number> *m, transport::twopf_task<number> *tk,
-                         unsigned int g=0, bool no_log=false);
+                         unsigned int g = 0, bool no_log = true);
 
   //! move constructor
   twopf_sampling_batcher(twopf_sampling_batcher<number> &&) = default;
@@ -236,7 +236,7 @@ public:
   void push_tensor_twopf(unsigned int time_serial, unsigned int k_serial,
                          unsigned int source_serial, const std::vector<number> &tensor_values);
 
-// INTERNAL DATA
+  // INTERNAL DATA
 private:
   //! std::vector for collecting the zeta-twopf samples in
   std::vector<number> &zeta_twopf_data;
@@ -265,7 +265,7 @@ public:
   threepf_sampling_batcher(std::vector<number> &dt_twopf, std::vector<number> &dt_tenspf,
                            std::vector<number> &dt_thrpf, std::vector<number> &dt_redbsp,
                            const boost::filesystem::path &lp, unsigned int w, transport::model<number> *m,
-                           transport::threepf_task<number> *tk, unsigned int g = 0, bool no_log = false);
+                           transport::threepf_task<number> *tk, unsigned int g = 0, bool no_log = true);
 
   //! move constructor
   threepf_sampling_batcher(threepf_sampling_batcher<number> &&) = default;
@@ -291,7 +291,7 @@ public:
                          unsigned int source_serial, const std::vector<number> &tensor_values);
 
   void push_threepf(unsigned int time_serial, double t,
-                    const transport::threepf_kconfig& kconfig, unsigned int source_serial,
+                    const transport::threepf_kconfig &kconfig, unsigned int source_serial,
                     const std::vector<number> &threepf,
                     const std::vector<number> &tpf_k1_re, const std::vector<number> &tpf_k1_im,
                     const std::vector<number> &tpf_k2_re, const std::vector<number> &tpf_k2_im,
@@ -330,32 +330,32 @@ protected:
 
   //! cache for quadratic part of gauge transformation, 312 permutation
   std::vector<number> gauge_xfm2_312;
-      };
+};
 
 // GENERIC BATCHER METHODS
 // CONSTRUCTOR, DESTRUCTOR
 template <typename number>
 sampling_integration_batcher<number>::sampling_integration_batcher(const boost::filesystem::path &lp,
                                                                    unsigned int w, transport::model<number> *m, transport::integration_task<number> *tk, unsigned int g, bool no_log)
-    : basic_batcher(lp, w, g)
-    {
+    : basic_batcher(lp, w, g, no_log)
+{
 }
 
 //! TWOPF_SAMPLING METHODS
 // CONSTRUCTOR
 template <typename number>
 twopf_sampling_batcher<number>::twopf_sampling_batcher(std::vector<number> &dt_twopf, std::vector<number> &dt_tenspf,
-                                               const boost::filesystem::path &lp,
+                                                       const boost::filesystem::path &lp,
                                                        unsigned int w, transport::model<number> *m,
                                                        transport::twopf_task<number> *tk, unsigned int g, bool no_log)
     : sampling_integration_batcher<number>(lp, w, m, tk, g, no_log),
-       zeta_twopf_data(dt_twopf),
-       tensor_twopf_data(dt_tenspf),
-       Nfields(m->get_N_fields()),
-       compute_agent(m,tk)
+      zeta_twopf_data(dt_twopf),
+      tensor_twopf_data(dt_tenspf),
+      Nfields(m->get_N_fields()),
+      compute_agent(m, tk)
 {
   // Ensure the std::vector for the 1st-order gauge transform has the correct dimensions
-  gauge_xfm1.resize(2*this->Nfields);
+  gauge_xfm1.resize(2 * this->Nfields);
 }
 
 // PUSH_BACKG
@@ -391,24 +391,24 @@ void twopf_sampling_batcher<number>::push_tensor_twopf(unsigned int time_serial,
 template <typename number>
 threepf_sampling_batcher<number>::threepf_sampling_batcher(std::vector<number> &dt_twopf, std::vector<number> &dt_tenspf,
                                                            std::vector<number> &dt_thrpf, std::vector<number> &dt_redbsp,
-                                                   const boost::filesystem::path &lp,
+                                                           const boost::filesystem::path &lp,
                                                            unsigned int w, transport::model<number> *m,
                                                            transport::threepf_task<number> *tk, unsigned int g, bool no_log)
     : sampling_integration_batcher<number>(lp, w, m, tk, g, no_log),
-          zeta_twopf_data(dt_twopf),
-          tensor_twopf_data(dt_tenspf),
-          zeta_threepf_data(dt_thrpf),
-          redbsp_data(dt_redbsp),
-          Nfields(m->get_N_fields()),
-          compute_agent(m,tk)
+      zeta_twopf_data(dt_twopf),
+      tensor_twopf_data(dt_tenspf),
+      zeta_threepf_data(dt_thrpf),
+      redbsp_data(dt_redbsp),
+      Nfields(m->get_N_fields()),
+      compute_agent(m, tk)
 {
   // Ensure the std::vector for the 1st-order gauge transform has the correct dimensions
-  gauge_xfm1.resize(2*this->Nfields);
+  gauge_xfm1.resize(2 * this->Nfields);
 
   // Ensure the std::vectors for the quadratic gauge transformations have the correct dimensions
-  gauge_xfm2_123.resize(2*this->Nfields * 2*this->Nfields);
-  gauge_xfm2_213.resize(2*this->Nfields * 2*this->Nfields);
-  gauge_xfm2_312.resize(2*this->Nfields * 2*this->Nfields);
+  gauge_xfm2_123.resize(2 * this->Nfields * 2 * this->Nfields);
+  gauge_xfm2_213.resize(2 * this->Nfields * 2 * this->Nfields);
+  gauge_xfm2_312.resize(2 * this->Nfields * 2 * this->Nfields);
 }
 
 // PUSH_BACKG
@@ -423,7 +423,7 @@ void threepf_sampling_batcher<number>::push_backg(unsigned int time_serial, unsi
 template <typename number>
 void threepf_sampling_batcher<number>::push_twopf(unsigned int time_serial, unsigned int k_serial, unsigned int source_serial,
                                                   const std::vector<number> &twopf_values, const std::vector<number> &backg,
-                                          transport::twopf_type t)
+                                                  transport::twopf_type t)
 {
   number zeta_twopf = 0.0;
   this->compute_agent.zeta_twopf(twopf_values, backg, zeta_twopf, this->gauge_xfm1);
@@ -434,7 +434,7 @@ void threepf_sampling_batcher<number>::push_twopf(unsigned int time_serial, unsi
 // PUSH_TENSOR_TWOPF
 template <typename number>
 void threepf_sampling_batcher<number>::push_tensor_twopf(unsigned int time_serial, unsigned int k_serial,
-                                                 unsigned int source_serial,
+                                                         unsigned int source_serial,
                                                          const std::vector<number> &tensor_values)
 {
   number tensor_twopf = 4.0 * tensor_values[0]; // 4.0 appears because of tensor polarisations

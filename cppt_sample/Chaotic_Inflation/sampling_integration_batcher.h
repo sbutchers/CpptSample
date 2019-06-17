@@ -51,7 +51,7 @@ public:
   // CONSTRUCTOR, DESTRUCTOR
 public:
   //! constructor
-  basic_batcher(const boost::filesystem::path &lp, unsigned int w, unsigned int g = 0, bool no_log = false);
+  basic_batcher(const boost::filesystem::path &lp, unsigned int w, unsigned int g = 0, bool no_log = true);
 
   //! move constructor
   basic_batcher(basic_batcher &&) = default;
@@ -187,7 +187,7 @@ public:
   //! constructor
   sampling_integration_batcher(const boost::filesystem::path &lp, unsigned int w,
                                transport::model<number> *m, transport::integration_task<number> *tk,
-                               unsigned int g = 0, bool no_log = false);
+                               unsigned int g = 0, bool no_log = true);
 
   //! move constructor
   sampling_integration_batcher(sampling_integration_batcher<number> &&) = default;
@@ -219,7 +219,7 @@ public:
   twopf_sampling_batcher(std::vector<number> &dt_twopf, std::vector<number> &dt_tenspf,
                          const boost::filesystem::path &lp, unsigned int w,
                          transport::model<number> *m, transport::twopf_task<number> *tk,
-                         unsigned int g = 0, bool no_log = false);
+                         unsigned int g = 0, bool no_log = true);
 
   //! move constructor
   twopf_sampling_batcher(twopf_sampling_batcher<number> &&) = default;
@@ -265,7 +265,7 @@ public:
   threepf_sampling_batcher(std::vector<number> &dt_twopf, std::vector<number> &dt_tenspf,
                            std::vector<number> &dt_thrpf, std::vector<number> &dt_redbsp,
                            const boost::filesystem::path &lp, unsigned int w, transport::model<number> *m,
-                           transport::threepf_task<number> *tk, unsigned int g = 0, bool no_log = false);
+                           transport::threepf_task<number> *tk, unsigned int g = 0, bool no_log = true);
 
   //! move constructor
   threepf_sampling_batcher(threepf_sampling_batcher<number> &&) = default;
@@ -337,7 +337,7 @@ protected:
 template <typename number>
 sampling_integration_batcher<number>::sampling_integration_batcher(const boost::filesystem::path &lp,
                                                                    unsigned int w, transport::model<number> *m, transport::integration_task<number> *tk, unsigned int g, bool no_log)
-    : basic_batcher(lp, w, g)
+    : basic_batcher(lp, w, g, no_log)
 {
 }
 
