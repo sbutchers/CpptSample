@@ -2,6 +2,7 @@ from cosmosis.datablock import names, option_section
 from pandas import read_csv
 from numpy import log
 from scipy.optimize import curve_fit
+import os
 
 
 # Define some names for identifying files and column names
@@ -49,15 +50,12 @@ def execute(block, config):
     n_s = 1 + deriv_s
     n_t = deriv_t
 
-    print n_s
-    print n_t
-
     # Return the n_s and n_t values to the datablock
     block[twopf_name, "n_s_scipy"] = n_s
     block[twopf_name, "n_t_scipy"] = n_t
 
     # Delete the temporary data file
-    os.remove( file )
+    os.remove(file)
 
     # We tell CosmoSIS that everything went fine by returning zero
     return 0
