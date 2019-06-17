@@ -1,6 +1,6 @@
 from cosmosis.datablock import names, option_section
 from pandas import read_csv
-from numpy import log
+from numpy import log, genfromtxt
 from scipy.optimize import curve_fit
 import os
 
@@ -30,7 +30,11 @@ def execute(block, config):
     k_pivot = config['k_pivot']
     # Load in spec_index table from datablock onto a Pandas df
     file = block[spec_file, "spec_index_table"]
+
+    # Pandas implementation of read-in
     df = read_csv(file, sep="\t", header=None, names=tab_names)
+    # NumPy implmentation of read-in
+    # df = genfromtxt(file, delimiter="\t", names=tab_names)
 
     # Make ln versions of k_pivot, k, A_s & A_t
     lnKpiv = log(k_pivot)
