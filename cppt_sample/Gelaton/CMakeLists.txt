@@ -13,7 +13,7 @@ INCLUDE_DIRECTORIES(${CPPTRANSPORT_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR} ${C
 
 ADD_CUSTOM_COMMAND(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/gelaton_core.h ${CMAKE_CURRENT_BINARY_DIR}/gelaton_mpi.h
-  COMMAND CppTransport --verbose --fast gelaton.model
+  COMMAND CppTransport --verbose --fast ${CMAKE_CURRENT_SOURCE_DIR}/gelaton.model
   DEPENDS gelaton.model
 )
 
