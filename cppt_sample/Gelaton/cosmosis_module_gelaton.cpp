@@ -402,10 +402,10 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     DataType nt_pivot_linear;
     std::vector<DataType> r;
     // Threepf observables (at pivot scale)
-    DataType B_equi_piv;
-    DataType fNL_equi_piv;
-    DataType B_squ_piv;
-    DataType fNL_squ_piv;
+    // DataType B_equi_piv;
+    // DataType fNL_equi_piv;
+    // DataType B_squ_piv;
+    // DataType fNL_squ_piv;
 
     //! Objects needed for creating & storing the big twopf task for passing to a Boltzmann code.
     // Wavenumber k vectors for passing to CLASS, CAMB or another Boltzmann code
@@ -565,13 +565,13 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         tk2_piv = std::make_unique< transport::twopf_task<DataType> > ("gelaton.twopf-pivot", ics, times_sample, k_pivot_range);
         tk2_piv->set_adaptive_ics_efolds(4.5);
         // construct an equilateral threepf task based on the kt pivot scale made above
-        tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics,
-                times_sample, kt_pivot_range, alpha_equi, beta_equi);
-        tk3e->set_adaptive_ics_efolds(4.5);
-        // construct a squeezed threepf task based on the kt pivot scale made above.
-        tk3s = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-squeezed", ics,
-                times_sample, kt_pivot_range, alpha_sqz, beta_sqz);
-        tk3s->set_adaptive_ics_efolds(4.5);
+        // tk3e = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-equilateral", ics,
+        //         times_sample, kt_pivot_range, alpha_equi, beta_equi);
+        // tk3e->set_adaptive_ics_efolds(4.5);
+        // // construct a squeezed threepf task based on the kt pivot scale made above.
+        // tk3s = std::make_unique< transport::threepf_alphabeta_task<DataType> > ("gelaton.threepf-squeezed", ics,
+        //         times_sample, kt_pivot_range, alpha_sqz, beta_sqz);
+        // tk3s->set_adaptive_ics_efolds(4.5);
 
         //! INTEGRATE OUR TASKS CREATED FOR THE TWO-POINT FUNCTION ABOVE
         // All batchers need the filesystem path and an unsigned int for logging
@@ -727,39 +727,33 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 //        }
 
         //! Integrate the tasks created for the equilateral 3-point function above
-        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
-        // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
-       std::vector<DataType> eq_twopf_samples;
-       std::vector<DataType> eq_tens_samples;
-       std::vector<DataType> eq_threepf_samples;
-       std::vector<DataType> eq_redbsp_samples;
-       threepf_sampling_batcher<DataType> eq_thpf_batcher(eq_twopf_samples, eq_tens_samples, eq_threepf_samples, eq_redbsp_samples,
-               lp, w, model.get(), tk3e.get(), g, no_log);
+    //     // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
+    //     // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
+    //    std::vector<DataType> eq_twopf_samples;
+    //    std::vector<DataType> eq_tens_samples;
+    //    std::vector<DataType> eq_threepf_samples;
+    //    std::vector<DataType> eq_redbsp_samples;
+    //    threepf_sampling_batcher<DataType> eq_thpf_batcher(eq_twopf_samples, eq_tens_samples, eq_threepf_samples, eq_redbsp_samples,
+    //            lp, w, model.get(), tk3e.get(), g, no_log);
 
-       // Integrate all of the threepf samples provided in the tk3e task
-       auto eq_db = tk3e->get_threepf_database();
-       for (auto t = eq_db.record_cbegin(); t!= eq_db.record_cend(); ++t)
-       {
-           model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
-       }
+    //    // Integrate all of the threepf samples provided in the tk3e task
+    //    auto eq_db = tk3e->get_threepf_database();
+    //    for (auto t = eq_db.record_cbegin(); t!= eq_db.record_cend(); ++t)
+    //    {
+    //        model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
+    //    }
 
-       // Print-out of threepf samples
-//        for (auto i = 0; i < eq_threepf_samples.size(); i++)
-//        {
-//            std::cout << "Threepf sample no: " << i << " - " << eq_threepf_samples[i] << " ; Redbsp: " << eq_redbsp_samples[i] << std::endl;
-//        }
+    //    // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
+    //    dispersion<DataType> equi_B_disp_check(kt_pivot_range, times_sample, eq_threepf_samples);
+    //    dispersion<DataType> equi_fNL_disp_check(kt_pivot_range, times_sample, eq_redbsp_samples);
+    //    if ( (equi_B_disp_check.dispersion_check() == true) or (equi_fNL_disp_check.dispersion_check() == true) ) {
+    //        throw time_varying_spectrum();
+    //    }
 
-       // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
-       dispersion<DataType> equi_B_disp_check(kt_pivot_range, times_sample, eq_threepf_samples);
-       dispersion<DataType> equi_fNL_disp_check(kt_pivot_range, times_sample, eq_redbsp_samples);
-       if ( (equi_B_disp_check.dispersion_check() == true) or (equi_fNL_disp_check.dispersion_check() == true) ) {
-           throw time_varying_spectrum();
-       }
-
-       // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
-       // do this by taking the value at the end of inflation
-       B_equi_piv = eq_threepf_samples.back();
-       fNL_equi_piv = eq_redbsp_samples.back();
+    //    // find the bispectrum amplitude and f_NL amplitude at the end of inflation for the pivot scale
+    //    // do this by taking the value at the end of inflation
+    //    B_equi_piv = eq_threepf_samples.back();
+    //    fNL_equi_piv = eq_redbsp_samples.back();
 
         //! Integrate the task for the squeezed 3-point function above
 //        // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
@@ -886,8 +880,8 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
     status = block->put_val( inflation::twopf_name, "r", r_pivot );
     // Use put_val to put the three-point observables (B_equi, fNL_equi) onto the datablock
-    status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
-    status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi_piv );
+    // status = block->put_val( inflation::thrpf_name, "B_equi", B_equi_piv );
+    // status = block->put_val( inflation::thrpf_name, "fNL_equi", fNL_equi_piv );
 //    status = block->put_val( inflation::thrpf_name, "B_squ", B_squ_piv );
 //    status = block->put_val( inflation::thrpf_name, "fNL_squ", fNL_squ_piv );
 
