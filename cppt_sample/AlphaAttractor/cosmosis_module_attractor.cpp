@@ -57,9 +57,18 @@ namespace inflation {
     }
 
     // ints for capturing failed samples
-    int no_end_inflate = 0, neg_Hsq = 0, integrate_nan = 0, zero_massless = 0, neg_epsilon = 0,
-        large_epsilon = 0, neg_V = 0, failed_horizonExit = 0, ics_before_start = 0, inflate60 = 0,
-        time_var_pow_spec = 0;
+    int no_end_inflate = 0;
+    int neg_Hsq = 0;
+    int integrate_nan = 0;
+    int zero_massless = 0;
+    int neg_epsilon = 0;
+    int large_epsilon = 0;
+    int neg_V = 0;
+    int failed_horizonExit = 0;
+    int ics_before_start = 0;
+    int inflate60 = 0;
+    int time_var_pow_spec = 0;
+    int runtime_exception = 0;
 }
 
 // exception for catching when <60 e-folds inflation given as we need at least 60 e-folds for sampling
@@ -208,26 +217,6 @@ DataType spec_index_deriv (DataType k_value, std::vector<DataType>& k, std::vect
     return spectral_index;
 }
 
-// Set-up a function that returns the k-derivative of A_s or A_t as a DataType.
-//DataType spec_derivative(const DataType k, const DataType dk, std::vector<DataType> Amplitude)
-//{
-//    // compute d/dk[Amplitude] using a three-point central difference of O(dk^6).
-//    const DataType dk1 = dk;
-//    const DataType dk2 = dk1*2.0;
-//    const DataType dk3 = dk1*3.0;
-//
-//    const DataType Amp1 = (Amplitude[4] - Amplitude[2]) / 2;
-//    const DataType Amp2 = (Amplitude[5] - Amplitude[1]) / 4;
-//    const DataType Amp3 = (Amplitude[6] - Amplitude[0]) / 6;
-//
-//    const DataType fifteen_Amp1 = 15 * Amp1;
-//    const DataType six_Amp2 = 6 * Amp2;
-//    const DataType ten_dk1 = 10 * dk1;
-//
-//    const DataType dAdk = ((fifteen_Amp1 - six_Amp2) + Amp3) / ten_dk1;
-//    const DataType k_div_A = k / Amplitude[3];
-//    return (dAdk * k_div_A);
-//}
 
 // Set-up a dispersion class that has a function which checks the power spectrum values contained in samples with k and
 // t samples stored in k_size and time_size for strongly-varying spectrum values. This is when the std deviation of
@@ -446,16 +435,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the bisection method to find the e-fold exit of k pivot_choice.
         N_pivot_exit = compute_Nexit_for_physical_k(inflation::k_pivot_choice, spline_match_eq, tol, nEND);
-        // std::cout << "e-fold exit for k* is: " << N_pivot_exit << std::endl;
-        // std::cout << "k* from spline is:" << spline_match_eq(N_pivot_exit) << std::endl;
 
-        // Construct a vector of exit times (= no. of e-folds BEFORE the end of inflation!)
-//        std::vector<DataType> Phys_k_exits (Phys_waveno_sample.size());
-//        for (int i = 0; i < Phys_k_exits.size(); ++i)
-//        {
-//            Phys_k_exits[i] = compute_Nexit_for_physical_k(Phys_waveno_sample[i], spline_match_eq, tol);
-//            std::cout << Phys_waveno_sample[i] << "Mpc^(-1) exits at: " << Phys_k_exits[i] << " e-folds." << std::endl;
-//        }
 
         //! Construct the wave-numbers using a linearity relation.
         // Build CppT normalised wave-numbers by using the linear relation k_phys = gamma * k_cppt and k_cppt[Npre] == 1
@@ -485,51 +465,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
 
         // Use the CppT normalised kpivot value to build a range with kt = 3*kpivot only
         transport::basic_range<DataType> kt_pivot_range{3.0*k_pivot_cppt, 3.0*k_pivot_cppt, 1, transport::spacing::linear};
-
-        //! ################################################################################
-
-        //! OLD WAY OF CONSTRUCTING THE WAVENUMBERS - this found wavenumbers exiting at nEND-60 up to nEND-50 by finding
-        //! the value of aH at these times and then rescaling with the value at nPre for CppT normalisation
-        // Use the compute aH method to be able to find the values through-out the duration of inflation.
-        // These will be used to find appropriate k values exiting at specific e-foldings by setting k=aH
-        // at the desired value of N.
-//        std::vector<DataType> N;
-//        std::vector<DataType> log_aH;
-//        std::vector<DataType> log_a2H2M;
-//        model->compute_aH(&tk2_test, N, log_aH, log_a2H2M);
-//        // Interpolate the N and log(aH) values.
-//        transport::spline1d<DataType> aH_spline(N, log_aH);
-//        // Construct some (comoving) k values exiting at at nEND-60, nEND-59, nEND-58, ..., nEND-50.
-//        for (int i = 60; i >= 50; --i)
-//        {
-//            DataType N_value = nEND - i;
-//            DataType k_value = exp( aH_spline(N_value) );
-//            k_values.push_back(k_value);
-//        }
-//        // To get these k numbers to be conventionally normalised, we need the value of aH given at
-//        // N_pre as defined above. Divide the k numbers by this value to get conventional normalisation.
-//        for (int i = 0; i < k_values.size(); ++i)
-//        {
-//            k_values[i] = k_values[i] / exp( aH_spline(N_pre) );
-//        }
-//        // use the vector of k values to build a transport::basic_range object to use for integration
-//        transport::aggregate_range<DataType> ks;
-//        for (int i = 0; i < k_conventional.size(); ++i)
-//        {
-//            transport::basic_range<DataType> k_temp{k_conventional[i], k_conventional[i], 1, transport::spacing::log_bottom};
-//            ks += k_temp;
-//        }
-//        // Do the same thing for kt but not as many because 3pf integrations are longer!
-//        transport::aggregate_range<DataType> kts;
-//        for (int i = 0; i < k_values.size(); ++i)
-//        {
-//            transport::basic_range<DataType> kt_temp{3.0*k_values[i], 3.0*k_values[i], 1, transport::spacing::log_bottom};
-//            kts += kt_temp;
-//        }
-
-        //! END OF OLD WAY OF CONSTRUCTING WAVENUMBERS
-
-        //! ################################################################################
 
         //! Construct the integration tasks for the different configurations
         // Some alphas and betas needed specifically for equilateral and squeezed configs.
@@ -575,12 +510,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             model->twopf_kmode(*t, tk2_piv.get(), pivot_batcher, 1);
         }
 
-        // Print out of samples for the pivot task
-//        for (int i = 0; i < pivot_twopf_samples.size(); ++i)
-//        {
-//            std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << pivot_twopf_samples[i] << " ; Tensor 2pf: " << tens_pivot_samples[i] << std::endl;
-//        }
-
         std::vector<DataType> k_pivots;
         for (int i = 0; i < k_pivot_range.size(); ++i)
         {
@@ -625,46 +554,12 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         // Use put_val to write the temporary file with k, P_s(k) and P_t(k) information for spectral indices
         status = block->put_val( inflation::spec_file, "spec_index_table", temp_spec_path.string() );
 
-        // for (int i = 0; i < A_s_spec.size(); ++i)
-        // {
-        //     std::cout << std::setprecision(9) << A_s_spec[i] << std::endl;
-        //     std::cout << std::setprecision(9) << A_t_spec[i] << std::endl;
-        // }
-
-        // std::cout << "r_pivot is: " << r_pivot << std::endl;
-        // std::cout << "A_s (pivot) is: " << A_s_pivot << std::endl;
-        // std::cout << "A_t (pivot) is: " << A_t_pivot << std::endl;
-
         // Use the function defined above to find dA/dk and compute n_s and n_t from those
         ns_pivot = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, true);
         nt_pivot = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_t_spec, false);
 
         ns_pivot_linear = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, true, 1);
         nt_pivot_linear = spec_index_deriv(inflation::k_pivot_choice, k_pivots, A_s_spec, false, 1);
-
-//        DataType dk_phys = dk*std::exp(gamma);
-//        DataType ns_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_s_spec) + 1.0;
-//        DataType nt_pivot_central = spec_derivative(inflation::k_pivot_choice, dk_phys, A_t_spec);
-
-        // transport::spline1d<DataType> ns_piv_spline(k_pivots, A_s_spec);
-        // DataType ns_pivot_spline = ns_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_s_pivot) + 1.0;
-
-        // transport::spline1d<DataType> nt_piv_spline(k_pivots, A_t_spec);
-        // DataType nt_pivot_spline = nt_piv_spline.eval_diff(inflation::k_pivot_choice) * (inflation::k_pivot_choice / A_t_pivot);
-
-        // std::cout << "ns: " << ns_pivot << "\t" << "ns(linear): " << ns_pivot_linear << std::endl;
-        // std::cout << "nt: " << nt_pivot << "\t" << "nt(linear): " << nt_pivot_linear << std::endl;
-
-        // //! Create a temporary path & file for passing wave-number information to the datablock for class
-        // boost::filesystem::path temp_path_small = boost::filesystem::current_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%.dat");
-        // std::ofstream outf(temp_path_small.string(), std::ios_base::out | std::ios_base::trunc);
-        // for (int i = 0; i < k_pivots.size(); ++i) {
-        //     outf << k_pivots[i] << "\t";
-        //     outf << A_s_spec[i] << "\t";
-        //     outf << ns_pivot << "\t";
-        //     outf << ns_pivot_linear << "\n";
-        // }
-        // outf.close();
 
         //! Big twopf task for CLASS or CAMB
         // Add a 2pf batcher here to collect the data - this needs a vector to collect the zeta-twopf samples.
@@ -678,11 +573,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
         {
             model->twopf_kmode(*t, tk2.get(), batcher, 1);
         }
-
-//        for (int i = 0; i < tens_samples_twpf.size(); ++i)
-//        {
-//            std::cout << "Sample no: " << i << " :-. Zeta 2pf: " << samples[i] << " ; Tensor 2pf: " << tens_samples_twpf[i] << std::endl;
-//        }
 
         // Perform a dispersion check on the spectrum values - throw time_varying_spectrum if they're varying.
         dispersion<DataType> twopf_task_disp(ks, times_sample, samples);
@@ -702,13 +592,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
             r.push_back( tens_samples_twpf[index] / samples[index] );
         }
 
-//        for (int i=0; i < A_s.size(); i++)
-//        {
-//            std::cout << "A_s: " << A_s[i] << std::endl;
-//            std::cout << "A_t: " << A_t[i] << std::endl;
-//            std::cout << "r: " << r[i] << std::endl;
-//        }
-
         //! Integrate the tasks created for the equilateral 3-point function above
         // Add a 3pf batcher here to collect the data - this needs 3 vectors for the z2pf, z3pf and redbsp data samples
         // as well as the same boost::filesystem::path and unsigned int variables used in the 2pf batcher.
@@ -725,12 +608,6 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
        {
            model->threepf_kmode(*t, tk3e.get(), eq_thpf_batcher, 1);
        }
-
-        // Print-out of threepf samples
-        //    for (auto i = 0; i < eq_threepf_samples.size(); i++)
-        //    {
-        //        std::cout << "Threepf sample no: " << i << " - " << eq_threepf_samples[i] << " ; Redbsp: " << eq_redbsp_samples[i] << std::endl;
-        //    }
 
        // Perform a dispersion check - throw time_varying_spectrum if spectra aren't stable
        dispersion<DataType> equi_B_disp_check(kt_pivot_range, times_sample, eq_threepf_samples);
@@ -817,6 +694,9 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     } catch (time_varying_spectrum& xe) {
         std::cout << "!!! THE POWER SPECTRUM VARIES TOO MUCH !!!" << std::endl;
         inflation::time_var_pow_spec = 1;
+    } catch (transport::runtime_exception& xe) {
+        std::cout << "!!! RUNTIME EXCEPTION: SEE TERMINAL OUTPUT FOR REASON !!!";
+        inflation::runtime_exception = 1;
     } // end of try-catch block
 
     // FAILED SAMPLE INFO
@@ -832,6 +712,7 @@ DATABLOCK_STATUS execute(cosmosis::DataBlock * block, void * config)
     status = block->put_val( inflation::fail_names, "ICs_before_start",   inflation::ics_before_start);
     status = block->put_val( inflation::fail_names, "leq_60_efolds",      inflation::inflate60);
     status = block->put_val( inflation::fail_names, "varying_Spec",       inflation::time_var_pow_spec);
+    status = block->put_val( inflation::fail_names, "CppT_runt_excpt",    inflation::runtime_exception);
 
     // Sum all the failed sample ints and add that to status - if any = 1 then break out of pipeline for this sample.
     int err_sum = inflation::no_end_inflate + inflation::neg_Hsq + inflation::integrate_nan + inflation::zero_massless +
